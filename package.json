@@ -1,6 +1,6 @@
 {
   "name": "@fengguanghuai/dsh-capability-hub",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Codex-style unified capability hub for managing MCP servers, tools, skills, and switchable capability bundles in the top-left sidebar.",
   "keywords": [
     "dsh-plugin",

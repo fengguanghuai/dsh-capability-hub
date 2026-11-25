@@ -5,10 +5,15 @@ import { fileURLToPath } from 'node:url';
 import {
   computeEffectivePolicy,
   extractZipEntries,
+  formatMcpJsonSnippet,
   formatSkillMarkdown,
+  hasCredentialTemplate,
   isWritableSkillLocation,
+  maskKeyValueMap,
+  maskSecretValue,
   parseSkillMarkdown,
   resolveSkillRootDir,
+  sanitizeKeyValueMap,
   seedDefaultBundles,
 } from './index.js';
 
@@ -178,5 +183,36 @@ const zipEntries = extractZipEntries(zipBuf);
 assert.equal(zipEntries.length, 1);
 assert.equal(zipEntries[0].path, 'demo-skill/SKILL.md');
 assert.equal(zipEntries[0].content.toString('utf8'), formatted);
+
+// 7. Validate MCP auth helpers: sanitize, secret masking, credential templates, JSON snippet
+assert.deepEqual(
+  sanitizeKeyValueMap({ Authorization: 'Bearer tok', ' ': 'x', Empty: '   ', __proto__: 'bad' }),
+  { Authorization: 'Bearer tok' },
+);
+assert.equal(maskSecretValue('Bearer sk-1234567890abcd'), 'Bearer sk-1****abcd');
+assert.equal(maskSecretValue('short'), '****');
+assert.equal(maskSecretValue('Bearer ${credential:MCP_TOKEN}'), 'Bearer ${credential:MCP_TOKEN}');
+assert.deepEqual(
+  maskKeyValueMap({ Authorization: 'Bearer sk-1234567890abcd', 'X-API-Key': '${credential:API_KEY}' }),
+  { Authorization: 'Bearer sk-1****abcd', 'X-API-Key': '${credential:API_KEY}' },
+);
+assert.equal(hasCredentialTemplate({ headers: { Authorization: 'Bearer ${credential:MCP_TOKEN}' } }), true);
+assert.equal(hasCredentialTemplate({ headers: { Authorization: 'Bearer plain-secret-token' } }), false);
+const httpSnippet = JSON.parse(formatMcpJsonSnippet({
+  name: 'remote_api',
+  transport: 'streamable-http',
+  url: 'https://mcp.example.com/mcp',
+  headers: { Authorization: 'Bearer sk-1234567890abcd' },
+}));
+assert.equal(httpSnippet.mcpServers.remote_api.headers.Authorization, 'Bearer sk-1****abcd');
+const stdioSnippet = JSON.parse(formatMcpJsonSnippet({
+  name: 'gh_local',
+  transport: 'stdio',
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-github'],
+  env: { GITHUB_TOKEN: '${credential:GITHUB_TOKEN}' },
+}));
+assert.equal(stdioSnippet.mcpServers.gh_local.env.GITHUB_TOKEN, '${credential:GITHUB_TOKEN}');
+assert.equal(stdioSnippet.mcpServers.gh_local.expandTemplates, true);
 
 console.log('ALL_CHECKS_PASSED');

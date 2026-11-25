@@ -1111,12 +1111,22 @@ window.__ModuleLoader__.load({
       const [bfSkillFilter, setBfSkillFilter] = useState('');
 
       // Custom MCP form state
+      const [cmEditing, setCmEditing] = useState(false);
       const [cmName, setCmName] = useState('');
       const [cmTransport, setCmTransport] = useState('streamable-http');
       const [cmUrl, setCmUrl] = useState('');
+      const [cmAuthType, setCmAuthType] = useState('none'); // 'none' | 'bearer' | 'api-key' | 'custom'
+      const [cmBearerToken, setCmBearerToken] = useState('');
+      const [cmApiKeyHeader, setCmApiKeyHeader] = useState('X-API-Key');
+      const [cmApiKeyValue, setCmApiKeyValue] = useState('');
+      const [cmHeadersText, setCmHeadersText] = useState('');
+      const [cmKeepHeaders, setCmKeepHeaders] = useState({}); // { key: maskedValue }
       const [cmCommand, setCmCommand] = useState('npx');
       const [cmArgs, setCmArgs] = useState('');
+      const [cmEnvText, setCmEnvText] = useState('');
+      const [cmKeepEnv, setCmKeepEnv] = useState({}); // { key: maskedValue }
       const [cmCwd, setCmCwd] = useState('');
+      const [cmShowSecret, setCmShowSecret] = useState(false);
 
       // Skill add / edit / import / delete state
       const [skModeTab, setSkModeTab] = useState('create'); // 'create' | 'import'
@@ -1214,13 +1224,56 @@ window.__ModuleLoader__.load({
         setDrawer({ kind: 'bundle-form' });
       }, []);
 
-      const openConnectMcp = useCallback(() => {
-        setCmName('');
-        setCmTransport('streamable-http');
-        setCmUrl('');
-        setCmCommand('npx');
-        setCmArgs('');
-        setCmCwd('');
+      const openConnectMcp = useCallback((existing = null) => {
+        setCmShowSecret(false);
+        if (existing && typeof existing === 'object' && typeof existing.name === 'string' && existing.name) {
+          setCmEditing(true);
+          setCmName(existing.name || '');
+          const tr = existing.transport === 'stdio' ? 'stdio' : 'streamable-http';
+          setCmTransport(tr);
+          setCmUrl(existing.url || '');
+          setCmCommand(existing.command || 'npx');
+          setCmArgs(Array.isArray(existing.args) ? existing.args.join(' ') : '');
+          setCmCwd(existing.cwd || '');
+          const existingHeaders = existing.headers && typeof existing.headers === 'object' ? { ...existing.headers } : {};
+          const existingEnv = existing.env && typeof existing.env === 'object' ? { ...existing.env } : {};
+          setCmKeepHeaders(existingHeaders);
+          setCmKeepEnv(existingEnv);
+          setCmBearerToken('');
+          setCmApiKeyValue('');
+          setCmHeadersText('');
+          setCmEnvText('');
+          const hKeys = Object.keys(existingHeaders);
+          if (hKeys.length === 0) {
+            setCmAuthType('none');
+            setCmApiKeyHeader('X-API-Key');
+          } else if (hKeys.length === 1 && /^authorization$/i.test(hKeys[0]) && /^bearer\s+/i.test(existingHeaders[hKeys[0]] || '')) {
+            setCmAuthType('bearer');
+            setCmApiKeyHeader('X-API-Key');
+          } else if (hKeys.length === 1) {
+            setCmAuthType('api-key');
+            setCmApiKeyHeader(hKeys[0]);
+          } else {
+            setCmAuthType('custom');
+            setCmApiKeyHeader('X-API-Key');
+          }
+        } else {
+          setCmEditing(false);
+          setCmName('');
+          setCmTransport('streamable-http');
+          setCmUrl('');
+          setCmAuthType('none');
+          setCmBearerToken('');
+          setCmApiKeyHeader('X-API-Key');
+          setCmApiKeyValue('');
+          setCmHeadersText('');
+          setCmKeepHeaders({});
+          setCmCommand('npx');
+          setCmArgs('');
+          setCmEnvText('');
+          setCmKeepEnv({});
+          setCmCwd('');
+        }
         setDrawer({ kind: 'connect-mcp' });
       }, []);
 
@@ -1622,7 +1675,7 @@ window.__ModuleLoader__.load({
               activeTab === 'skills'
                 ? h('button', { type: 'button', className: 'ch-btn ch-btn-primary', onClick: () => openAddSkill(null) }, t('btn.addSkill'))
                 : activeTab === 'mcps'
-                  ? h('button', { type: 'button', className: 'ch-btn ch-btn-primary', onClick: openConnectMcp }, t('btn.connectMcp'))
+                  ? h('button', { type: 'button', className: 'ch-btn ch-btn-primary', onClick: () => openConnectMcp() }, t('btn.connectMcp'))
                   : h('button', { type: 'button', className: 'ch-btn ch-btn-primary', onClick: () => openBundleForm(null) }, t('btn.newBundle')),
             ),
           ),
@@ -2111,6 +2164,7 @@ window.__ModuleLoader__.load({
                   { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
                   h('span', { className: m.enabled ? 'ch-pill ok' : 'ch-pill' }, m.enabled ? t('status.connected') : t('status.muted')),
                   h('span', { className: 'ch-pill ch-mono' }, m.transport),
+                  m.hasAuth ? h('span', { className: 'ch-pill ok' }, '已配置鉴权') : null,
                   h('span', { className: 'ch-pill' }, `${m.activeTools}/${m.totalTools} tools`),
                 ),
                 h(
@@ -2118,6 +2172,17 @@ window.__ModuleLoader__.load({
                   { style: { display: 'flex', alignItems: 'center', gap: 8 } },
                   m.canRestart
                     ? h('button', { type: 'button', className: 'ch-btn ch-btn-sm', onClick: () => runMutation({ action: 'restart_mcp', serverName: m.name }) }, t('btn.restart'))
+                    : null,
+                  m.isCustom
+                    ? h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'ch-btn ch-btn-sm',
+                          onClick: () => openConnectMcp(m),
+                        },
+                        '编辑配置',
+                      )
                     : null,
                   m.isCustom
                     ? h(
@@ -2419,6 +2484,83 @@ window.__ModuleLoader__.load({
         }
 
         if (drawer.kind === 'connect-mcp') {
+          const credRe = /\$\{credential:[^}]+\}/;
+          const maskPreview = (val) => {
+            const str = String(val || '');
+            if (!str) return '';
+            if (credRe.test(str)) return str;
+            const bm = /^(Bearer\s+)(.+)$/i.exec(str);
+            if (bm) return `${bm[1]}${maskPreview(bm[2])}`;
+            if (str.length <= 8) return '****';
+            return `${str.slice(0, 4)}****${str.slice(-4)}`;
+          };
+          const parseKvLines = (text, sep) => {
+            const map = {};
+            for (const rawLine of String(text || '').split(/\r?\n/)) {
+              const line = rawLine.trim();
+              if (!line || line.startsWith('#')) continue;
+              const idx = line.indexOf(sep);
+              if (idx <= 0) continue;
+              const k = line.slice(0, idx).trim();
+              const v = line.slice(idx + 1).trim();
+              if (k && v) map[k] = v;
+            }
+            return map;
+          };
+          const buildHttpHeaders = (forPreview) => {
+            const out = {};
+            if (cmAuthType === 'bearer') {
+              const tok = cmBearerToken.trim();
+              if (tok) {
+                const rawVal = /^bearer\s+/i.test(tok) ? tok : `Bearer ${tok}`;
+                out.Authorization = forPreview ? maskPreview(rawVal) : rawVal;
+              } else {
+                const existingAuthKey = Object.keys(cmKeepHeaders).find((k) => /^authorization$/i.test(k));
+                if (existingAuthKey) {
+                  out[existingAuthKey] = forPreview ? cmKeepHeaders[existingAuthKey] : '__KEEP__';
+                }
+              }
+            } else if (cmAuthType === 'api-key') {
+              const hk = cmApiKeyHeader.trim() || 'X-API-Key';
+              const hv = cmApiKeyValue.trim();
+              if (hv) {
+                out[hk] = forPreview ? maskPreview(hv) : hv;
+              } else if (cmKeepHeaders[hk]) {
+                out[hk] = forPreview ? cmKeepHeaders[hk] : '__KEEP__';
+              }
+            } else if (cmAuthType === 'custom') {
+              for (const [k, masked] of Object.entries(cmKeepHeaders)) {
+                out[k] = forPreview ? masked : '__KEEP__';
+              }
+              const parsed = parseKvLines(cmHeadersText, ':');
+              for (const [k, v] of Object.entries(parsed)) {
+                out[k] = forPreview ? maskPreview(v) : v;
+              }
+            }
+            return out;
+          };
+          const buildStdioEnv = (forPreview) => {
+            const out = {};
+            for (const [k, masked] of Object.entries(cmKeepEnv)) {
+              out[k] = forPreview ? masked : '__KEEP__';
+            }
+            const parsed = parseKvLines(cmEnvText, '=');
+            for (const [k, v] of Object.entries(parsed)) {
+              out[k] = forPreview ? maskPreview(v) : v;
+            }
+            return out;
+          };
+
+          const previewHeaders = buildHttpHeaders(true);
+          const previewEnv = buildStdioEnv(true);
+          const hasCredTpl =
+            credRe.test(cmUrl) ||
+            credRe.test(cmCommand) ||
+            credRe.test(cmArgs) ||
+            credRe.test(cmCwd) ||
+            Object.values(previewHeaders).some((v) => credRe.test(String(v))) ||
+            Object.values(previewEnv).some((v) => credRe.test(String(v)));
+
           const previewJson = JSON.stringify(
             {
               mcpServers: {
@@ -2428,24 +2570,31 @@ window.__ModuleLoader__.load({
                         transport: 'stdio',
                         command: cmCommand.trim() || 'npx',
                         ...(cmArgs.trim() ? { args: cmArgs.trim().split(/\s+/) } : {}),
+                        ...(Object.keys(previewEnv).length ? { env: previewEnv } : {}),
                         ...(cmCwd.trim() ? { cwd: cmCwd.trim() } : {}),
+                        ...(hasCredTpl ? { expandTemplates: true } : {}),
                       }
                     : {
                         transport: 'streamable-http',
                         url: cmUrl.trim() || 'https://example.com/mcp',
+                        ...(Object.keys(previewHeaders).length ? { headers: previewHeaders } : {}),
+                        ...(hasCredTpl ? { expandTemplates: true } : {}),
                       },
               },
             },
             null,
             2,
           );
+          const existingBearerKey = Object.keys(cmKeepHeaders).find((k) => /^authorization$/i.test(k));
+          const existingApiKeyVal = cmKeepHeaders[cmApiKeyHeader.trim() || 'X-API-Key'];
+
           return h(
             React.Fragment,
             null,
             h(
               'div',
               { className: 'ch-drawer-head' },
-              h('div', { className: 'ch-drawer-title' }, '连接自定义 MCP 服务'),
+              h('div', { className: 'ch-drawer-title' }, cmEditing ? `编辑自定义 MCP · ${cmName}` : '连接自定义 MCP 服务'),
               h('button', { type: 'button', className: 'ch-btn ch-btn-sm', onClick: () => setDrawer(null) }, '✕'),
             ),
             h(
@@ -2459,6 +2608,7 @@ window.__ModuleLoader__.load({
                   className: 'ch-input ch-field-input ch-mono',
                   placeholder: '例如: github_mcp 或 local_sqlite',
                   value: cmName,
+                  disabled: cmEditing,
                   onChange: (e) => setCmName(e.target.value),
                 }),
               ),
@@ -2491,15 +2641,153 @@ window.__ModuleLoader__.load({
               ),
               cmTransport === 'streamable-http'
                 ? h(
-                    'div',
-                    { className: 'ch-field' },
-                    h('label', { className: 'ch-label' }, 'MCP Endpoint URL'),
-                    h('input', {
-                      className: 'ch-input ch-field-input ch-mono',
-                      placeholder: 'https://mcp.example.com/mcp',
-                      value: cmUrl,
-                      onChange: (e) => setCmUrl(e.target.value),
-                    }),
+                    React.Fragment,
+                    null,
+                    h(
+                      'div',
+                      { className: 'ch-field' },
+                      h('label', { className: 'ch-label' }, 'MCP Endpoint URL'),
+                      h('input', {
+                        className: 'ch-input ch-field-input ch-mono',
+                        placeholder: 'https://mcp.example.com/mcp',
+                        value: cmUrl,
+                        onChange: (e) => setCmUrl(e.target.value),
+                      }),
+                    ),
+                    h(
+                      'div',
+                      { className: 'ch-field' },
+                      h('span', { className: 'ch-label' }, '鉴权方式 (Authentication)'),
+                      h(
+                        'div',
+                        { className: 'ch-seg', style: { gridTemplateColumns: 'repeat(4, 1fr)' } },
+                        [
+                          ['none', '无鉴权'],
+                          ['bearer', 'Bearer'],
+                          ['api-key', 'API Key'],
+                          ['custom', '自定义'],
+                        ].map(([k, label]) =>
+                          h(
+                            'button',
+                            {
+                              key: k,
+                              type: 'button',
+                              className: cmAuthType === k ? 'ch-seg-btn active' : 'ch-seg-btn',
+                              onClick: () => setCmAuthType(k),
+                            },
+                            label,
+                          ),
+                        ),
+                      ),
+                    ),
+                    cmAuthType === 'bearer'
+                      ? h(
+                          'div',
+                          { className: 'ch-field' },
+                          h(
+                            'div',
+                            { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 } },
+                            h('label', { className: 'ch-label' }, 'Bearer Token'),
+                            h(
+                              'button',
+                              { type: 'button', className: 'ch-btn ch-btn-sm', onClick: () => setCmShowSecret((v) => !v) },
+                              cmShowSecret ? '隐藏' : '显示',
+                            ),
+                          ),
+                          h('input', {
+                            type: cmShowSecret ? 'text' : 'password',
+                            className: 'ch-input ch-field-input ch-mono',
+                            placeholder: existingBearerKey
+                              ? `已保存 (${cmKeepHeaders[existingBearerKey]})，留空保持不变`
+                              : 'sk-... 或 ${credential:MCP_TOKEN}',
+                            value: cmBearerToken,
+                            onChange: (e) => setCmBearerToken(e.target.value),
+                          }),
+                          h('div', { className: 'ch-muted', style: { fontSize: 12 } }, '将自动以 Authorization: Bearer <token> 发送，支持 DSH 凭据模板 ${credential:REF}。'),
+                        )
+                      : null,
+                    cmAuthType === 'api-key'
+                      ? h(
+                          React.Fragment,
+                          null,
+                          h(
+                            'div',
+                            { className: 'ch-field' },
+                            h('label', { className: 'ch-label' }, 'Header 名称'),
+                            h('input', {
+                              className: 'ch-input ch-field-input ch-mono',
+                              placeholder: 'X-API-Key',
+                              value: cmApiKeyHeader,
+                              onChange: (e) => setCmApiKeyHeader(e.target.value),
+                            }),
+                          ),
+                          h(
+                            'div',
+                            { className: 'ch-field' },
+                            h(
+                              'div',
+                              { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 } },
+                              h('label', { className: 'ch-label' }, 'API Key 值'),
+                              h(
+                                'button',
+                                { type: 'button', className: 'ch-btn ch-btn-sm', onClick: () => setCmShowSecret((v) => !v) },
+                                cmShowSecret ? '隐藏' : '显示',
+                              ),
+                            ),
+                            h('input', {
+                              type: cmShowSecret ? 'text' : 'password',
+                              className: 'ch-input ch-field-input ch-mono',
+                              placeholder: existingApiKeyVal
+                                ? `已保存 (${existingApiKeyVal})，留空保持不变`
+                                : '输入 Key 或 ${credential:API_KEY}',
+                              value: cmApiKeyValue,
+                              onChange: (e) => setCmApiKeyValue(e.target.value),
+                            }),
+                          ),
+                        )
+                      : null,
+                    cmAuthType === 'custom'
+                      ? h(
+                          'div',
+                          { className: 'ch-field' },
+                          h('label', { className: 'ch-label' }, '自定义 Headers（每行一条 Key: Value）'),
+                          Object.keys(cmKeepHeaders).length > 0
+                            ? h(
+                                'div',
+                                { style: { display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 } },
+                                Object.entries(cmKeepHeaders).map(([k, masked]) =>
+                                  h(
+                                    'span',
+                                    { key: k, className: 'ch-pill ch-mono', style: { display: 'inline-flex', alignItems: 'center', gap: 6 } },
+                                    `${k}: ${masked}`,
+                                    h(
+                                      'button',
+                                      {
+                                        type: 'button',
+                                        style: { border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: 'inherit' },
+                                        title: '移除此 Header',
+                                        onClick: () =>
+                                          setCmKeepHeaders((prev) => {
+                                            const next = { ...prev };
+                                            delete next[k];
+                                            return next;
+                                          }),
+                                      },
+                                      '✕',
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : null,
+                          h('textarea', {
+                            className: 'ch-input ch-field-input ch-mono',
+                            rows: 3,
+                            placeholder: 'Authorization: Bearer ${credential:MCP_TOKEN}\nX-Tenant-Id: prod',
+                            value: cmHeadersText,
+                            onChange: (e) => setCmHeadersText(e.target.value),
+                          }),
+                        )
+                      : null,
                   )
                 : h(
                     React.Fragment,
@@ -2529,6 +2817,46 @@ window.__ModuleLoader__.load({
                     h(
                       'div',
                       { className: 'ch-field' },
+                      h('label', { className: 'ch-label' }, '环境变量 / 鉴权凭据 (Env，每行 KEY=VALUE，可选)'),
+                      Object.keys(cmKeepEnv).length > 0
+                        ? h(
+                            'div',
+                            { style: { display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 } },
+                            Object.entries(cmKeepEnv).map(([k, masked]) =>
+                              h(
+                                'span',
+                                { key: k, className: 'ch-pill ch-mono', style: { display: 'inline-flex', alignItems: 'center', gap: 6 } },
+                                `${k}=${masked}`,
+                                h(
+                                  'button',
+                                  {
+                                    type: 'button',
+                                    style: { border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: 'inherit' },
+                                    title: '移除此环境变量',
+                                    onClick: () =>
+                                      setCmKeepEnv((prev) => {
+                                        const next = { ...prev };
+                                        delete next[k];
+                                        return next;
+                                      }),
+                                  },
+                                  '✕',
+                                ),
+                              ),
+                            ),
+                          )
+                        : null,
+                      h('textarea', {
+                        className: 'ch-input ch-field-input ch-mono',
+                        rows: 3,
+                        placeholder: 'GITHUB_TOKEN=${credential:GITHUB_TOKEN}\nAPI_KEY=your-key',
+                        value: cmEnvText,
+                        onChange: (e) => setCmEnvText(e.target.value),
+                      }),
+                    ),
+                    h(
+                      'div',
+                      { className: 'ch-field' },
                       h('label', { className: 'ch-label' }, '工作目录 (可选)'),
                       h('input', {
                         className: 'ch-input ch-field-input ch-mono',
@@ -2541,7 +2869,7 @@ window.__ModuleLoader__.load({
               h(
                 'div',
                 { className: 'ch-code-box' },
-                h('div', { className: 'ch-code-head' }, h('span', null, '底层配置实时预览')),
+                h('div', { className: 'ch-code-head' }, h('span', null, '底层配置实时预览（密钥已脱敏）')),
                 h('pre', { className: 'ch-pre' }, previewJson),
               ),
             ),
@@ -2556,19 +2884,23 @@ window.__ModuleLoader__.load({
                   className: 'ch-btn ch-btn-primary',
                   disabled: !cmName.trim(),
                   onClick: async () => {
+                    const headers = cmTransport === 'streamable-http' ? buildHttpHeaders(false) : {};
+                    const env = cmTransport === 'stdio' ? buildStdioEnv(false) : {};
                     const res = await runMutation({
                       action: 'save_custom_mcp',
                       serverName: cmName.trim(),
                       transport: cmTransport,
                       url: cmUrl.trim(),
+                      headers,
                       command: cmCommand.trim(),
                       argsText: cmArgs.trim(),
+                      env,
                       serverCwd: cmCwd.trim(),
                     });
                     if (res) setDrawer(null);
                   },
                 },
-                '保存并立即挂载',
+                cmEditing ? '保存并重新挂载' : '保存并立即挂载',
               ),
             ),
           );

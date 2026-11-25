@@ -447,17 +447,73 @@ function parseRepoInstallArgs(input) {
   return normalized.split(/\s+/).filter(Boolean);
 }
 
-function formatMcpJsonSnippet(srv) {
+const CREDENTIAL_TEMPLATE_RE = /\$\{credential:[^}]+\}/;
+
+export function sanitizeKeyValueMap(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [k, v] of Object.entries(raw)) {
+    const key = String(k || '').trim();
+    if (!key || key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+    const val = v == null ? '' : String(v);
+    if (!val.trim()) continue;
+    out[key] = val;
+  }
+  return out;
+}
+
+export function maskSecretValue(raw) {
+  const str = String(raw || '');
+  if (!str) return '';
+  if (CREDENTIAL_TEMPLATE_RE.test(str)) return str;
+  const bearerMatch = /^(Bearer\s+)(.+)$/i.exec(str);
+  if (bearerMatch) {
+    return `${bearerMatch[1]}${maskSecretValue(bearerMatch[2])}`;
+  }
+  if (str.length <= 8) return '****';
+  return `${str.slice(0, 4)}****${str.slice(-4)}`;
+}
+
+export function maskKeyValueMap(raw) {
+  const clean = sanitizeKeyValueMap(raw);
+  const out = {};
+  for (const [k, v] of Object.entries(clean)) {
+    out[k] = maskSecretValue(v);
+  }
+  return out;
+}
+
+export function hasCredentialTemplate(cfg) {
+  if (!cfg || typeof cfg !== 'object') return false;
+  const values = [
+    cfg.url,
+    cfg.command,
+    cfg.cwd,
+    ...(Array.isArray(cfg.args) ? cfg.args : []),
+    ...Object.values(cfg.headers && typeof cfg.headers === 'object' ? cfg.headers : {}),
+    ...Object.values(cfg.env && typeof cfg.env === 'object' ? cfg.env : {}),
+  ];
+  return values.some(v => typeof v === 'string' && CREDENTIAL_TEMPLATE_RE.test(v));
+}
+
+export function formatMcpJsonSnippet(srv) {
+  const maskedHeaders = maskKeyValueMap(srv.headers);
+  const maskedEnv = maskKeyValueMap(srv.env);
+  const expand = Boolean(srv.expandTemplates) || hasCredentialTemplate(srv);
   const entry = srv.transport === 'stdio'
     ? {
         transport: 'stdio',
         command: srv.command || 'npx',
         ...(srv.args?.length ? { args: srv.args } : {}),
+        ...(Object.keys(maskedEnv).length ? { env: maskedEnv } : {}),
         ...(srv.cwd ? { cwd: srv.cwd } : {}),
+        ...(expand ? { expandTemplates: true } : {}),
       }
     : {
         transport: 'streamable-http',
         url: srv.url || 'https://example.com/mcp',
+        ...(Object.keys(maskedHeaders).length ? { headers: maskedHeaders } : {}),
+        ...(expand ? { expandTemplates: true } : {}),
       };
   return JSON.stringify({ mcpServers: { [srv.name]: entry } }, null, 2);
 }
@@ -733,18 +789,21 @@ export function apply(ctx) {
       if (!cfg || cfg.enabled === false || state.disabledServers?.[srv] === true) continue;
       if (customMcpDisposers.has(srv)) continue;
       try {
+        const expandTemplates = Boolean(cfg.expandTemplates) || hasCredentialTemplate(cfg);
         const entry = cfg.transport === 'stdio'
           ? {
               transport: 'stdio',
               command: cfg.command || '',
               args: Array.isArray(cfg.args) ? cfg.args : [],
-              env: cfg.env && typeof cfg.env === 'object' ? cfg.env : {},
+              env: sanitizeKeyValueMap(cfg.env),
               cwd: cfg.cwd || '',
+              ...(expandTemplates ? { expandTemplates: true } : {}),
             }
           : {
               transport: 'streamable-http',
               url: cfg.url || '',
-              headers: cfg.headers && typeof cfg.headers === 'object' ? cfg.headers : {},
+              headers: sanitizeKeyValueMap(cfg.headers),
+              ...(expandTemplates ? { expandTemplates: true } : {}),
             };
         const off = mgr.register(srv, entry);
         customMcpDisposers.set(srv, off);
@@ -875,6 +934,19 @@ export function apply(ctx) {
       const command = customCfg?.command || managedCfg?.command || hint?.command || '';
       const args = customCfg?.args || managedCfg?.args || [];
       const srvCwd = customCfg?.cwd || managedCfg?.cwd || '';
+      const rawHeaders = customCfg?.headers || managedCfg?.headers || {};
+      const rawEnv = customCfg?.env || managedCfg?.env || {};
+      const maskedHeaders = maskKeyValueMap(rawHeaders);
+      const maskedEnv = maskKeyValueMap(rawEnv);
+      const hasAuth = Object.keys(maskedHeaders).length > 0 || Object.keys(maskedEnv).length > 0;
+      const expandTemplates = Boolean(customCfg?.expandTemplates || managedCfg?.expandTemplates) || hasCredentialTemplate({
+        url,
+        command,
+        args,
+        cwd: srvCwd,
+        headers: rawHeaders,
+        env: rawEnv,
+      });
       const source = customCfg ? 'custom' : managedView?.configured ? 'settings' : 'bundle';
 
       const srvRecord = {
@@ -885,6 +957,10 @@ export function apply(ctx) {
         command,
         args,
         cwd: srvCwd,
+        headers: maskedHeaders,
+        env: maskedEnv,
+        hasAuth,
+        expandTemplates,
         patchPath: hint?.patchPath || '',
         enabled: eff.enabled,
         disableReason: eff.reason,
@@ -1387,16 +1463,31 @@ export function apply(ctx) {
         if (!SERVER_NAME_RE.test(serverName)) {
           return { ok: false, error: 'MCP 服务名称仅支持字母、数字、下划线或连字符（1-32位）' };
         }
+        const prevCfg = state.customServers[serverName] || {};
+        const resolveMapWithKeep = (incoming, prevMap) => {
+          const clean = sanitizeKeyValueMap(incoming);
+          const merged = {};
+          for (const [k, v] of Object.entries(clean)) {
+            if (v === '__KEEP__' && prevMap && typeof prevMap[k] === 'string') {
+              merged[k] = prevMap[k];
+            } else if (v !== '__KEEP__') {
+              merged[k] = v;
+            }
+          }
+          return merged;
+        };
         const transport = payload.transport === 'stdio' ? 'stdio' : 'streamable-http';
         if (transport === 'streamable-http') {
           const url = String(payload.url || '').trim();
           if (!/^https?:\/\//i.test(url)) {
             return { ok: false, error: 'Streamable HTTP 需要有效的 http(s):// 地址' };
           }
+          const headers = resolveMapWithKeep(payload.headers, prevCfg.headers);
           state.customServers[serverName] = {
             transport: 'streamable-http',
             url,
-            headers: payload.headers && typeof payload.headers === 'object' ? payload.headers : {},
+            headers,
+            expandTemplates: Boolean(payload.expandTemplates) || hasCredentialTemplate({ url, headers }),
             enabled: payload.enabled !== false,
           };
         } else {
@@ -1407,12 +1498,15 @@ export function apply(ctx) {
             : String(payload.argsText || '').trim()
               ? String(payload.argsText).trim().split(/\s+/)
               : [];
+          const env = resolveMapWithKeep(payload.env, prevCfg.env);
+          const serverCwd = String(payload.serverCwd || '').trim();
           state.customServers[serverName] = {
             transport: 'stdio',
             command,
             args,
-            env: payload.env && typeof payload.env === 'object' ? payload.env : {},
-            cwd: String(payload.serverCwd || '').trim(),
+            env,
+            cwd: serverCwd,
+            expandTemplates: Boolean(payload.expandTemplates) || hasCredentialTemplate({ command, args, env, cwd: serverCwd }),
             enabled: payload.enabled !== false,
           };
         }
@@ -1587,8 +1681,17 @@ export function apply(ctx) {
             toolName: { type: 'string', description: 'Full MCP tool name (mcp__<server>__<tool>) for toggle_mcp_tool.' },
             transport: { type: 'string', enum: ['streamable-http', 'stdio'], description: 'Transport for save_custom_mcp.' },
             url: { type: 'string', description: 'Endpoint URL for streamable-http save_custom_mcp.' },
+            headers: {
+              type: 'object',
+              description: 'Optional HTTP request headers for streamable-http authentication (e.g. {"Authorization": "Bearer ${credential:MCP_TOKEN}"}).',
+            },
             command: { type: 'string', description: 'Executable command for stdio save_custom_mcp.' },
             args: { type: 'array', items: { type: 'string' }, description: 'Command arguments for stdio save_custom_mcp.' },
+            env: {
+              type: 'object',
+              description: 'Optional environment variables for stdio authentication (e.g. {"GITHUB_TOKEN": "${credential:GITHUB_TOKEN}"}).',
+            },
+            serverCwd: { type: 'string', description: 'Optional working directory for stdio save_custom_mcp.' },
           },
         },
         output: {
