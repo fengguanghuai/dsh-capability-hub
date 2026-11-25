@@ -70,17 +70,19 @@ flowchart TB
 
 ## Installation
 
-In DeepSeek Harness, open **Plugins → Install** and enter either:
+### Via CLI
 
-```text
-@fengguanghuai/dsh-capability-hub
+```bash
+# Install from npm
+dsh plugin add @fengguanghuai/dsh-capability-hub
+
+# Or install directly from GitHub
+dsh plugin add github:fengguanghuai/dsh-capability-hub
 ```
 
-or install directly from GitHub:
+### Via DeepSeek Harness UI
 
-```text
-github:fengguanghuai/dsh-capability-hub
-```
+Open **Plugins → Install** and enter either `@fengguanghuai/dsh-capability-hub` or `github:fengguanghuai/dsh-capability-hub`.
 
 ## Development & Testing
 
