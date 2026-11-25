@@ -9,6 +9,12 @@ A unified capability hub for **DeepSeek Harness (DSH)** that lets you organize *
 
 ---
 
+## Preview
+
+| Suites & Budget Overview | Skills Drawer & Per-Session Composer |
+| --- | --- |
+| ![Suites Overview](./assets/preview-suites.png) | ![Skills & Per-Session Composer](./assets/preview-skills.png) |
+
 ## Architecture
 
 ```mermaid
