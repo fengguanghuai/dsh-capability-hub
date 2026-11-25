@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Capability Hub",
+    "description": "Manage capability suites, local and global skills, and MCP servers and individual tools from Capability Hub in the top-left sidebar. Toggle complete MCP + skill suites in one click, switch skills between automatic model invocation, manual /skill invocation, or muted state, toggle individual MCP tools, connect custom MCP servers, and expose the same actions through the capability_hub agent tool. Disabling this bundle restores default tool and skill visibility."
+  }
+}
