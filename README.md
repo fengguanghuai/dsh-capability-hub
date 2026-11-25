@@ -27,10 +27,10 @@ flowchart TB
   end
 
   subgraph Core["Cordis Plugin Runtime (index.js)"]
-    API["HTTP API (/api/capability-hub) & Agent Tool (capability_hub)"]
+    API["HTTP API (/api/capability-hub) and Agent Tool (capability_hub)"]
     State["State Store (~/.dsh/capability-hub/state.json)"]
     SkillPolicy["Skill Policy Provider (in-memory auto / manual / muted)"]
-    ToolFilter["Session Tool Filter (per-session & subagent inheritance)"]
+    ToolFilter["Session Tool Filter (per-session and subagent inheritance)"]
     SkillFS["Skill Lifecycle Manager (save · import repo/local/zip · archive/delete)"]
     McpMgr["Custom MCP Manager (stdio · streamable-http)"]
   end
