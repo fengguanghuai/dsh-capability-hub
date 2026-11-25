@@ -35,10 +35,10 @@ flowchart TB
     McpMgr["Custom MCP Manager (stdio · streamable-http)"]
   end
 
-  subgraph Disk["Local & Runtime Targets"]
-    SkillDirs["~/.agents/skills · ~/.dsh/skills · .agents/skills · .dsh/skills"]
-    ArchiveDir["~/.agents/skills-disabled/"]
-    AgentCtx["Live DSH Sessions & Subagents"]
+  subgraph Disk["Runtime and Local Storage"]
+    AgentCtx["Live DSH Sessions and Subagents"]
+    SkillDirs["Skill Directories (~/.agents/skills, .agents/skills)"]
+    ArchiveDir["Archive (~/.agents/skills-disabled/)"]
   end
 
   Sidebar --> Hub
