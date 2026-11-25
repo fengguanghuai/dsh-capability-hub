@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { computeEffectivePolicy, seedDefaultBundles } from './index.js';
+import {
+  computeEffectivePolicy,
+  extractZipEntries,
+  formatSkillMarkdown,
+  isWritableSkillLocation,
+  parseSkillMarkdown,
+  resolveSkillRootDir,
+  seedDefaultBundles,
+} from './index.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
 
@@ -113,5 +121,62 @@ const emptySessPolicy = computeEffectivePolicy(stateSession, toolsByServer, skil
 assert.equal(emptySessPolicy.overridden, true);
 assert.deepEqual(emptySessPolicy.activeBundleIds, []);
 assert.ok(emptySessPolicy.deniedTools.has('mcp__mcp_beta__publish'));
+
+// 5. Validate SKILL.md serialization/parsing and writable location checks
+const formatted = formatSkillMarkdown({
+  name: 'demo-skill',
+  description: 'A demo skill: handles tasks cleanly',
+  whenToUse: 'Use for demos',
+  content: '# Demo\n\nFollow these steps.',
+});
+const parsed = parseSkillMarkdown(formatted);
+assert.equal(parsed.name, 'demo-skill');
+assert.equal(parsed.description, 'A demo skill: handles tasks cleanly');
+assert.equal(parsed.whenToUse, 'Use for demos');
+assert.equal(parsed.content, '# Demo\n\nFollow these steps.');
+
+const userAgentsRoot = resolveSkillRootDir('user-agents', '/tmp/work');
+assert.equal(isWritableSkillLocation(`${userAgentsRoot}/demo-skill/SKILL.md`, 'user-agents', '/tmp/work'), true);
+assert.equal(isWritableSkillLocation(`${userAgentsRoot}/demo-skill/SKILL.md`, 'bundled', '/tmp/work'), false);
+assert.equal(isWritableSkillLocation('/Applications/DeepSeek Harness.app/dsh-doc/SKILL.md', 'bundled', '/tmp/work'), false);
+
+// 6. Validate pure-Node ZIP extraction
+function buildStoredZip(filename, contentStr) {
+  const nameBuf = Buffer.from(filename, 'utf8');
+  const dataBuf = Buffer.from(contentStr, 'utf8');
+  const local = Buffer.alloc(30 + nameBuf.length + dataBuf.length);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt16LE(0, 8);
+  local.writeUInt32LE(dataBuf.length, 18);
+  local.writeUInt32LE(dataBuf.length, 22);
+  local.writeUInt16LE(nameBuf.length, 26);
+  nameBuf.copy(local, 30);
+  dataBuf.copy(local, 30 + nameBuf.length);
+
+  const cd = Buffer.alloc(46 + nameBuf.length);
+  cd.writeUInt32LE(0x02014b50, 0);
+  cd.writeUInt16LE(20, 4);
+  cd.writeUInt16LE(20, 6);
+  cd.writeUInt16LE(0, 10);
+  cd.writeUInt32LE(dataBuf.length, 20);
+  cd.writeUInt32LE(dataBuf.length, 24);
+  cd.writeUInt16LE(nameBuf.length, 28);
+  cd.writeUInt32LE(0, 42);
+  nameBuf.copy(cd, 46);
+
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(1, 8);
+  eocd.writeUInt16LE(1, 10);
+  eocd.writeUInt32LE(cd.length, 12);
+  eocd.writeUInt32LE(local.length, 16);
+  return Buffer.concat([local, cd, eocd]);
+}
+const zipBuf = buildStoredZip('demo-skill/SKILL.md', formatted);
+const zipEntries = extractZipEntries(zipBuf);
+assert.equal(zipEntries.length, 1);
+assert.equal(zipEntries[0].path, 'demo-skill/SKILL.md');
+assert.equal(zipEntries[0].content.toString('utf8'), formatted);
 
 console.log('ALL_CHECKS_PASSED');

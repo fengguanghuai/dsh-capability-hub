@@ -22,10 +22,12 @@ window.__ModuleLoader__.load({
       'hero.title': '按你的方式编排能力',
       'hero.subtitle': '统一管理场景套件、本地与全局 Skills 及 MCP 工具集，切换工作场景时一键收起无关上下文。',
       'btn.newBundle': '+ 新建套件',
+      'btn.addSkill': '+ 添加 Skill',
       'btn.connectMcp': '+ 连接 MCP',
       'btn.refresh': '刷新',
       'btn.back': '← 返回套件列表',
       'btn.editBundle': '编辑套件',
+      'btn.edit': '编辑',
       'btn.deleteBundle': '删除',
       'btn.save': '保存更改',
       'btn.create': '创建并启用',
@@ -83,10 +85,12 @@ window.__ModuleLoader__.load({
       'hero.title': 'Make Harness work your way',
       'hero.subtitle': 'Organize switchable bundles, local and global skills, and MCP tools in one quiet workspace.',
       'btn.newBundle': '+ New suite',
+      'btn.addSkill': '+ Add Skill',
       'btn.connectMcp': '+ Connect MCP',
       'btn.refresh': 'Refresh',
       'btn.back': '← Back to suites',
       'btn.editBundle': 'Edit suite',
+      'btn.edit': 'Edit',
       'btn.deleteBundle': 'Delete',
       'btn.save': 'Save changes',
       'btn.create': 'Create suite',
@@ -1114,6 +1118,23 @@ window.__ModuleLoader__.load({
       const [cmArgs, setCmArgs] = useState('');
       const [cmCwd, setCmCwd] = useState('');
 
+      // Skill add / edit / import / delete state
+      const [skModeTab, setSkModeTab] = useState('create'); // 'create' | 'import'
+      const [skOverwrite, setSkOverwrite] = useState(false);
+      const [skTargetPath, setSkTargetPath] = useState('');
+      const [skName, setSkName] = useState('');
+      const [skDesc, setSkDesc] = useState('');
+      const [skWhen, setSkWhen] = useState('');
+      const [skBody, setSkBody] = useState('');
+      const [skScope, setSkScope] = useState('user-agents');
+      const [skImportKind, setSkImportKind] = useState('repo'); // 'repo' | 'local' | 'zip'
+      const [skRepoSpec, setSkRepoSpec] = useState('');
+      const [skLocalPath, setSkLocalPath] = useState('');
+      const [skZipName, setSkZipName] = useState('');
+      const [skZipB64, setSkZipB64] = useState('');
+      const [skConfirmDelete, setSkConfirmDelete] = useState(false);
+      const [skBusy, setSkBusy] = useState(false);
+
       const refresh = useCallback(async (targetCwd) => {
         try {
           setError('');
@@ -1154,6 +1175,7 @@ window.__ModuleLoader__.load({
       }, [cwd]);
 
       const openSkillDrawer = useCallback((skillName) => {
+        setSkConfirmDelete(false);
         setDrawer({ kind: 'skill', name: skillName });
         setSkillDoc({ loading: true, content: '', path: '', error: '' });
         callHubGet({ action: 'read_skill', skillName, ...(cwd ? { cwd } : {}) })
@@ -1201,6 +1223,53 @@ window.__ModuleLoader__.load({
         setCmCwd('');
         setDrawer({ kind: 'connect-mcp' });
       }, []);
+
+      const openAddSkill = useCallback((existing = null, existingContent = '') => {
+        setSkConfirmDelete(false);
+        setSkBusy(false);
+        setSkModeTab('create');
+        if (existing) {
+          setSkOverwrite(true);
+          setSkTargetPath(existing.path || '');
+          setSkName(existing.name || '');
+          setSkDesc(existing.description || '');
+          setSkWhen(existing.whenToUse || '');
+          setSkBody(existingContent || '');
+          setSkScope(existing.source || 'user-agents');
+        } else {
+          setSkOverwrite(false);
+          setSkTargetPath('');
+          setSkName('');
+          setSkDesc('');
+          setSkWhen('');
+          setSkBody('');
+          setSkScope('user-agents');
+        }
+        setSkImportKind('repo');
+        setSkRepoSpec('');
+        setSkLocalPath('');
+        setSkZipName('');
+        setSkZipB64('');
+        setDrawer({ kind: 'add-skill' });
+      }, []);
+
+      const handleSkillBodyPaste = useCallback((text) => {
+        const normalized = String(text || '').replace(/\r\n/g, '\n');
+        const fmMatch = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(normalized);
+        if (!fmMatch) {
+          setSkBody(text);
+          return;
+        }
+        for (const line of fmMatch[1].split('\n')) {
+          const kv = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line.trim());
+          if (!kv) continue;
+          const val = kv[2].trim().replace(/^["']|["']$/g, '');
+          if (kv[1] === 'name' && !skOverwrite) setSkName(val);
+          else if (kv[1] === 'description') setSkDesc(val);
+          else if (kv[1] === 'when-to-use' || kv[1] === 'whenToUse') setSkWhen(val);
+        }
+        setSkBody(fmMatch[2].trim());
+      }, [skOverwrite]);
 
       const triggerCopy = useCallback((key, text) => {
         copyText(text).then((ok) => {
@@ -1550,8 +1619,11 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'ch-hero-actions' },
-              h('button', { type: 'button', className: 'ch-btn', onClick: openConnectMcp }, t('btn.connectMcp')),
-              h('button', { type: 'button', className: 'ch-btn ch-btn-primary', onClick: () => openBundleForm(null) }, t('btn.newBundle')),
+              activeTab === 'skills'
+                ? h('button', { type: 'button', className: 'ch-btn ch-btn-primary', onClick: () => openAddSkill(null) }, t('btn.addSkill'))
+                : activeTab === 'mcps'
+                  ? h('button', { type: 'button', className: 'ch-btn ch-btn-primary', onClick: openConnectMcp }, t('btn.connectMcp'))
+                  : h('button', { type: 'button', className: 'ch-btn ch-btn-primary', onClick: () => openBundleForm(null) }, t('btn.newBundle')),
             ),
           ),
           h(
@@ -1849,16 +1921,101 @@ window.__ModuleLoader__.load({
               'div',
               { className: 'ch-drawer-head' },
               h('div', { className: 'ch-drawer-title ch-mono' }, sk.name),
-              h('button', { type: 'button', className: 'ch-btn ch-btn-sm', onClick: () => setDrawer(null) }, '✕'),
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+                sk.writable
+                  ? h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'ch-btn ch-btn-sm',
+                        onClick: () => openAddSkill(sk, skillDoc.content || ''),
+                      },
+                      t('btn.edit'),
+                    )
+                  : null,
+                sk.writable
+                  ? h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'ch-btn ch-btn-sm ch-btn-danger',
+                        onClick: () => setSkConfirmDelete((prev) => !prev),
+                      },
+                      t('btn.deleteBundle'),
+                    )
+                  : null,
+                h('button', { type: 'button', className: 'ch-btn ch-btn-sm', onClick: () => setDrawer(null) }, '✕'),
+              ),
             ),
             h(
               'div',
               { className: 'ch-drawer-body' },
+              skConfirmDelete && sk.writable
+                ? h(
+                    'div',
+                    {
+                      className: 'ch-field',
+                      style: {
+                        padding: 10,
+                        borderRadius: 8,
+                        border: '1px solid var(--dsw-alias-border-error, #ef4444)',
+                        background: 'var(--dsw-alias-bg-secondary)',
+                      },
+                    },
+                    h('div', { style: { fontSize: 12.5, fontWeight: 500, marginBottom: 8 } }, `确认移除技能「${sk.name}」？（同时清理套件中的引用）`),
+                    h(
+                      'div',
+                      { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'ch-btn ch-btn-sm ch-btn-primary',
+                          disabled: skBusy,
+                          onClick: async () => {
+                            setSkBusy(true);
+                            const res = await runMutation({ action: 'delete_skill', skillName: sk.name, mode: 'archive' });
+                            setSkBusy(false);
+                            if (res) setDrawer(null);
+                          },
+                        },
+                        '移入归档 (skills-disabled)',
+                      ),
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'ch-btn ch-btn-sm ch-btn-danger',
+                          disabled: skBusy,
+                          onClick: async () => {
+                            setSkBusy(true);
+                            const res = await runMutation({ action: 'delete_skill', skillName: sk.name, mode: 'permanent' });
+                            setSkBusy(false);
+                            if (res) setDrawer(null);
+                          },
+                        },
+                        '彻底删除',
+                      ),
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'ch-btn ch-btn-sm',
+                          onClick: () => setSkConfirmDelete(false),
+                        },
+                        t('btn.cancel'),
+                      ),
+                    ),
+                  )
+                : null,
               h(
                 'div',
                 { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
                 renderSkillModePill(sk),
                 h('span', { className: 'ch-pill' }, `${renderScopeLabel(sk.scopeGroup)} (${sk.source})`),
+                !sk.writable ? h('span', { className: 'ch-pill' }, '只读内置') : null,
                 ...(sk.bundles || []).map((b) => h('span', { key: b.id, className: 'ch-pill' }, `套件: ${b.name}`)),
               ),
               h('div', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12.5 } }, sk.description),
@@ -2413,6 +2570,254 @@ window.__ModuleLoader__.load({
                 },
                 '保存并立即挂载',
               ),
+            ),
+          );
+        }
+
+        if (drawer.kind === 'add-skill') {
+          return h(
+            React.Fragment,
+            null,
+            h(
+              'div',
+              { className: 'ch-drawer-head' },
+              h('div', { className: 'ch-drawer-title' }, skOverwrite ? `编辑 Skill · ${skName}` : '添加 Skill'),
+              h('button', { type: 'button', className: 'ch-btn ch-btn-sm', onClick: () => setDrawer(null) }, '✕'),
+            ),
+            h(
+              'div',
+              { className: 'ch-drawer-body' },
+              !skOverwrite
+                ? h(
+                    'div',
+                    { className: 'ch-field' },
+                    h(
+                      'div',
+                      { className: 'ch-seg' },
+                      [
+                        { id: 'create', label: '新建 / 粘贴 SKILL.md' },
+                        { id: 'import', label: '导入 (仓库 / 目录 / ZIP)' },
+                      ].map((opt) =>
+                        h(
+                          'button',
+                          {
+                            key: opt.id,
+                            type: 'button',
+                            className: skModeTab === opt.id ? 'ch-seg-btn active' : 'ch-seg-btn',
+                            onClick: () => setSkModeTab(opt.id),
+                          },
+                          opt.label,
+                        ),
+                      ),
+                    ),
+                  )
+                : null,
+              skModeTab === 'create' || skOverwrite
+                ? h(
+                    React.Fragment,
+                    null,
+                    h(
+                      'div',
+                      { className: 'ch-field' },
+                      h('label', { className: 'ch-label' }, 'Skill 名称（kebab-case，如 my-skill）'),
+                      h('input', {
+                        className: 'ch-input ch-field-input ch-mono',
+                        placeholder: 'my-custom-skill',
+                        disabled: skOverwrite,
+                        value: skName,
+                        onChange: (e) => setSkName(e.target.value),
+                      }),
+                    ),
+                    h(
+                      'div',
+                      { className: 'ch-field' },
+                      h('label', { className: 'ch-label' }, '简短描述（决定模型何时自动触发）'),
+                      h('input', {
+                        className: 'ch-input ch-field-input',
+                        placeholder: '说明这个技能的作用与适用场景…',
+                        value: skDesc,
+                        onChange: (e) => setSkDesc(e.target.value),
+                      }),
+                    ),
+                    !skOverwrite
+                      ? h(
+                          'div',
+                          { className: 'ch-field' },
+                          h('label', { className: 'ch-label' }, '保存位置'),
+                          h(
+                            'select',
+                            {
+                              className: 'ch-select',
+                              value: skScope,
+                              onChange: (e) => setSkScope(e.target.value),
+                            },
+                            h('option', { value: 'user-agents' }, '用户全局 (~/.agents/skills)'),
+                            h('option', { value: 'user-dsh' }, 'DSH 用户目录 (~/.dsh/skills)'),
+                            cwd ? h('option', { value: 'project-agents' }, `当前项目 (${cwd}/.agents/skills)`) : null,
+                            cwd ? h('option', { value: 'project-dsh' }, `当前项目 (${cwd}/.dsh/skills)`) : null,
+                          ),
+                        )
+                      : null,
+                    h(
+                      'div',
+                      { className: 'ch-field' },
+                      h('label', { className: 'ch-label' }, '指令正文（可直接粘贴完整 SKILL.md，将自动解析 frontmatter）'),
+                      h('textarea', {
+                        className: 'ch-textarea ch-mono',
+                        style: { minHeight: 220 },
+                        placeholder: '# 技能说明\n\n当用户需要……时，按以下步骤执行：',
+                        value: skBody,
+                        onChange: (e) => handleSkillBodyPaste(e.target.value),
+                      }),
+                    ),
+                  )
+                : h(
+                    React.Fragment,
+                    null,
+                    h(
+                      'div',
+                      { className: 'ch-field' },
+                      h('label', { className: 'ch-label' }, '导入来源'),
+                      h(
+                        'div',
+                        { className: 'ch-seg' },
+                        [
+                          { id: 'repo', label: 'GitHub / skills 包' },
+                          { id: 'local', label: '本地目录' },
+                          { id: 'zip', label: '.zip 压缩包' },
+                        ].map((opt) =>
+                          h(
+                            'button',
+                            {
+                              key: opt.id,
+                              type: 'button',
+                              className: skImportKind === opt.id ? 'ch-seg-btn active' : 'ch-seg-btn',
+                              onClick: () => setSkImportKind(opt.id),
+                            },
+                            opt.label,
+                          ),
+                        ),
+                      ),
+                    ),
+                    h(
+                      'div',
+                      { className: 'ch-field' },
+                      h('label', { className: 'ch-label' }, '安装位置'),
+                      h(
+                        'select',
+                        {
+                          className: 'ch-select',
+                          value: skScope,
+                          onChange: (e) => setSkScope(e.target.value),
+                        },
+                        h('option', { value: 'user-agents' }, '用户全局 (~/.agents/skills)'),
+                        h('option', { value: 'user-dsh' }, 'DSH 用户目录 (~/.dsh/skills)'),
+                        cwd ? h('option', { value: 'project-agents' }, `当前项目 (${cwd}/.agents/skills)`) : null,
+                        cwd ? h('option', { value: 'project-dsh' }, `当前项目 (${cwd}/.dsh/skills)`) : null,
+                      ),
+                    ),
+                    skImportKind === 'repo'
+                      ? h(
+                          'div',
+                          { className: 'ch-field' },
+                          h('label', { className: 'ch-label' }, '仓库或命令（调用 npx skills add）'),
+                          h('input', {
+                            className: 'ch-input ch-field-input ch-mono',
+                            placeholder: 'owner/repo 或 https://github.com/owner/repo',
+                            value: skRepoSpec,
+                            onChange: (e) => setSkRepoSpec(e.target.value),
+                          }),
+                        )
+                      : skImportKind === 'local'
+                        ? h(
+                            'div',
+                            { className: 'ch-field' },
+                            h('label', { className: 'ch-label' }, '本地技能目录或包含多个技能的父目录路径'),
+                            h('input', {
+                              className: 'ch-input ch-field-input ch-mono',
+                              placeholder: '/Users/.../my-skill 或 ~/Downloads/skills',
+                              value: skLocalPath,
+                              onChange: (e) => setSkLocalPath(e.target.value),
+                            }),
+                          )
+                        : h(
+                            'div',
+                            { className: 'ch-field' },
+                            h('label', { className: 'ch-label' }, '选择包含 SKILL.md 的 .zip 压缩包'),
+                            h('input', {
+                              type: 'file',
+                              accept: '.zip,application/zip',
+                              className: 'ch-input ch-field-input',
+                              onChange: (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                setSkZipName(file.name);
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  setSkZipB64(typeof reader.result === 'string' ? reader.result : '');
+                                };
+                                reader.readAsDataURL(file);
+                              },
+                            }),
+                            skZipName ? h('div', { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginTop: 4 } }, `已选文件：${skZipName}`) : null,
+                          ),
+                  ),
+            ),
+            h(
+              'div',
+              { className: 'ch-drawer-foot' },
+              h('button', { type: 'button', className: 'ch-btn', onClick: () => setDrawer(null) }, t('btn.cancel')),
+              skModeTab === 'create' || skOverwrite
+                ? h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'ch-btn ch-btn-primary',
+                      disabled: skBusy || !skName.trim() || !skDesc.trim(),
+                      onClick: async () => {
+                        setSkBusy(true);
+                        const res = await runMutation({
+                          action: 'save_skill',
+                          skillName: skName.trim(),
+                          description: skDesc.trim(),
+                          whenToUse: skWhen.trim(),
+                          content: skBody,
+                          scope: skScope,
+                          overwrite: skOverwrite,
+                          targetPath: skTargetPath,
+                        });
+                        setSkBusy(false);
+                        if (res) setDrawer(null);
+                      },
+                    },
+                    skBusy ? '正在保存…' : skOverwrite ? t('btn.save') : '保存并立即生效',
+                  )
+                : h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'ch-btn ch-btn-primary',
+                      disabled:
+                        skBusy
+                        || (skImportKind === 'repo' && !skRepoSpec.trim())
+                        || (skImportKind === 'local' && !skLocalPath.trim())
+                        || (skImportKind === 'zip' && !skZipB64),
+                      onClick: async () => {
+                        setSkBusy(true);
+                        const res = await runMutation({
+                          action: 'import_skill',
+                          sourceType: skImportKind,
+                          scope: skScope,
+                          repoSpec: skRepoSpec.trim(),
+                          localPath: skLocalPath.trim(),
+                          zipBase64: skZipB64,
+                        });
+                        setSkBusy(false);
+                        if (res) setDrawer(null);
+                      },
+                    },
+                    skBusy ? '正在导入…' : '开始导入',
+                  ),
             ),
           );
         }

@@ -1,7 +1,23 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { promisify } from 'node:util';
+import { inflateRawSync } from 'node:zlib';
+
+const execFileAsync = promisify(execFile);
 
 export const name = 'capability-hub';
 
@@ -267,6 +283,168 @@ function classifySkillScope(source) {
   if (source === 'project-dsh' || source === 'project-agents') return 'project';
   if (source === 'user-dsh' || source === 'user-agents' || source === 'custom') return 'user';
   return 'system';
+}
+
+function unquoteYamlValue(raw) {
+  const s = String(raw || '').trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    return s.slice(1, -1);
+  }
+  return s;
+}
+
+/**
+ * Parse a SKILL.md string with optional YAML frontmatter into metadata and body.
+ */
+export function parseSkillMarkdown(raw) {
+  const text = String(raw || '').replace(/\r\n/g, '\n');
+  const fmMatch = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text);
+  if (!fmMatch) {
+    return { name: '', description: '', whenToUse: '', content: text.trim() };
+  }
+  const meta = {};
+  for (const line of fmMatch[1].split('\n')) {
+    const kv = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line.trim());
+    if (kv) meta[kv[1]] = unquoteYamlValue(kv[2]);
+  }
+  return {
+    name: String(meta.name || '').trim(),
+    description: String(meta.description || '').trim(),
+    whenToUse: String(meta['when-to-use'] || meta.whenToUse || '').trim(),
+    content: fmMatch[2].trim(),
+  };
+}
+
+function yamlScalar(val) {
+  const s = String(val || '').replace(/\r?\n/g, ' ').trim();
+  if (!s) return '""';
+  if (/[:#"'{}[\],&*!|>%@`]|^\s|\s$/.test(s)) {
+    return JSON.stringify(s);
+  }
+  return s;
+}
+
+/**
+ * Serialize a skill definition into standard SKILL.md frontmatter + markdown body.
+ */
+export function formatSkillMarkdown({ name: skillName, description, whenToUse, content }) {
+  const lines = [
+    '---',
+    `name: ${String(skillName || '').trim()}`,
+    `description: ${yamlScalar(description)}`,
+  ];
+  if (whenToUse && String(whenToUse).trim()) {
+    lines.push(`when-to-use: ${yamlScalar(whenToUse)}`);
+  }
+  lines.push('---', '');
+  const body = String(content || '').trim();
+  if (body) lines.push(body, '');
+  return lines.join('\n');
+}
+
+export function resolveSkillRootDir(scope, cwd) {
+  const home = homedir();
+  const dshHome = process.env.DSH_HOME || join(home, '.dsh');
+  switch (scope) {
+    case 'user-dsh':
+      return join(dshHome, 'skills');
+    case 'project-agents':
+      return cwd ? join(cwd, '.agents', 'skills') : '';
+    case 'project-dsh':
+      return cwd ? join(cwd, '.dsh', 'skills') : '';
+    case 'user-agents':
+    default:
+      return join(home, '.agents', 'skills');
+  }
+}
+
+function isWithinRoot(targetPath, rootDir) {
+  if (!targetPath || !rootDir) return false;
+  const rel = resolve(targetPath);
+  const root = resolve(rootDir);
+  return rel === root || rel.startsWith(`${root}/`) || rel.startsWith(`${root}\\`);
+}
+
+export function isWritableSkillLocation(skillPath, source, cwd) {
+  if (!skillPath || source === 'bundled' || source === 'runtime') return false;
+  const roots = [
+    resolveSkillRootDir('user-agents', cwd),
+    resolveSkillRootDir('user-dsh', cwd),
+    resolveSkillRootDir('project-agents', cwd),
+    resolveSkillRootDir('project-dsh', cwd),
+  ].filter(Boolean);
+  return roots.some(r => isWithinRoot(skillPath, r));
+}
+
+function resolveSkillDirFromPath(skillPath) {
+  if (!skillPath) return '';
+  return basename(skillPath).toLowerCase() === 'skill.md' ? dirname(skillPath) : skillPath;
+}
+
+/**
+ * Pure Node.js ZIP reader (supports stored=0 and deflate=8) with path-traversal checks.
+ */
+export function extractZipEntries(buf) {
+  const data = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  let eocdOffset = -1;
+  const minOffset = Math.max(0, data.length - 65557);
+  for (let i = data.length - 22; i >= minOffset; i -= 1) {
+    if (data.readUInt32LE(i) === 0x06054b50) {
+      eocdOffset = i;
+      break;
+    }
+  }
+  if (eocdOffset === -1) throw new Error('无效的 ZIP 压缩包（未找到目录尾）');
+
+  const totalEntries = data.readUInt16LE(eocdOffset + 10);
+  let cdOffset = data.readUInt32LE(eocdOffset + 16);
+  const entries = [];
+
+  for (let idx = 0; idx < totalEntries; idx += 1) {
+    if (cdOffset + 46 > data.length || data.readUInt32LE(cdOffset) !== 0x02014b50) {
+      throw new Error('无效的 ZIP 中央目录记录');
+    }
+    const method = data.readUInt16LE(cdOffset + 10);
+    const compSize = data.readUInt32LE(cdOffset + 20);
+    const nameLen = data.readUInt16LE(cdOffset + 28);
+    const extraLen = data.readUInt16LE(cdOffset + 30);
+    const commentLen = data.readUInt16LE(cdOffset + 32);
+    const localHeaderOffset = data.readUInt32LE(cdOffset + 42);
+    const rawName = data.slice(cdOffset + 46, cdOffset + 46 + nameLen).toString('utf8').replace(/\\/g, '/');
+    cdOffset += 46 + nameLen + extraLen + commentLen;
+
+    if (!rawName || rawName.endsWith('/')) continue;
+    const parts = rawName.split('/').filter(Boolean);
+    if (parts.length === 0 || parts.some(p => p === '..' || p === '.')) continue;
+    if (parts[0] === '__MACOSX') continue;
+
+    if (localHeaderOffset + 30 > data.length || data.readUInt32LE(localHeaderOffset) !== 0x04034b50) {
+      throw new Error(`无效的 ZIP 本地文件头: ${rawName}`);
+    }
+    const lNameLen = data.readUInt16LE(localHeaderOffset + 26);
+    const lExtraLen = data.readUInt16LE(localHeaderOffset + 28);
+    const dataStart = localHeaderOffset + 30 + lNameLen + lExtraLen;
+    const compressed = data.slice(dataStart, dataStart + compSize);
+
+    let content;
+    if (method === 0) content = compressed;
+    else if (method === 8) content = inflateRawSync(compressed);
+    else throw new Error(`不支持的 ZIP 压缩算法 (${method}): ${rawName}`);
+
+    entries.push({ path: parts.join('/'), content });
+  }
+  return entries;
+}
+
+function parseRepoInstallArgs(input) {
+  const raw = String(input || '').trim();
+  if (!raw) return [];
+  let normalized = raw
+    .replace(/^npx\s+(-y\s+)?skills\s+add\s+/i, '')
+    .replace(/^skills\s+add\s+/i, '')
+    .trim();
+  if (!normalized) return [];
+  return normalized.split(/\s+/).filter(Boolean);
 }
 
 function formatMcpJsonSnippet(srv) {
@@ -732,6 +910,7 @@ export function apply(ctx) {
         reason: 'default',
         bundles: [],
       };
+      const writable = isWritableSkillLocation(sk.path || '', sk.source || '', cwd);
       return {
         name: sk.name,
         description: sk.description || '',
@@ -739,6 +918,8 @@ export function apply(ctx) {
         source: sk.source || 'user-agents',
         scopeGroup: classifySkillScope(sk.source),
         path: sk.path || '',
+        skillDir: writable ? resolveSkillDirFromPath(sk.path || '') : '',
+        writable,
         provider: sk.provider || 'filesystem',
         configuredMode: ov.configuredMode,
         effectiveMode: ov.effectiveMode,
@@ -943,7 +1124,226 @@ export function apply(ctx) {
         if (mode === 'default') delete state.skillModes[skillName];
         else state.skillModes[skillName] = mode;
         persistAndReconcile();
-        return buildStatus(payload.cwd);
+        return buildStatus(payload.cwd, payload.sessionId);
+      }
+
+      case 'save_skill': {
+        const cwd = payload.cwd || resolveDefaultCwd();
+        let parsed = { name: '', description: '', whenToUse: '', content: '' };
+        if (payload.rawMarkdown) {
+          parsed = parseSkillMarkdown(payload.rawMarkdown);
+        }
+        const skillName = String(payload.skillName || parsed.name || '').trim();
+        const description = String(payload.description ?? parsed.description ?? '').trim();
+        const whenToUse = String(payload.whenToUse ?? parsed.whenToUse ?? '').trim();
+        const content = String(payload.content ?? parsed.content ?? '').trim();
+        const overwrite = Boolean(payload.overwrite);
+        const scope = String(payload.scope || 'user-agents');
+
+        if (!SKILL_NAME_RE.test(skillName)) {
+          return { ok: false, error: '技能名称仅支持小写字母、数字与连字符（kebab-case，如 my-skill）' };
+        }
+        if (!description) {
+          return { ok: false, error: '技能描述（description）不能为空' };
+        }
+
+        let targetFile = '';
+        if (overwrite && payload.targetPath && isWritableSkillLocation(payload.targetPath, 'user-agents', cwd)) {
+          targetFile = payload.targetPath;
+        } else {
+          const rootDir = resolveSkillRootDir(scope, cwd);
+          if (!rootDir) return { ok: false, error: '当前没有可用的工作区目录，无法写入项目级技能' };
+          const skillDir = join(rootDir, skillName);
+          targetFile = join(skillDir, 'SKILL.md');
+          if (!overwrite && existsSync(targetFile)) {
+            return { ok: false, error: `技能 "${skillName}" 已存在于 ${skillDir}` };
+          }
+        }
+
+        mkdirSync(dirname(targetFile), { recursive: true });
+        writeFileSync(targetFile, formatSkillMarkdown({ name: skillName, description, whenToUse, content }), 'utf8');
+        persistAndReconcile();
+        return { ...(await buildStatus(cwd, payload.sessionId)), savedSkillName: skillName, savedPath: targetFile };
+      }
+
+      case 'import_skill': {
+        const cwd = payload.cwd || resolveDefaultCwd();
+        const sourceType = String(payload.sourceType || 'repo');
+        const scope = String(payload.scope || 'user-agents');
+        const overwrite = Boolean(payload.overwrite);
+
+        if (sourceType === 'repo') {
+          const cliArgs = parseRepoInstallArgs(payload.repoSpec);
+          if (cliArgs.length === 0) {
+            return { ok: false, error: '请填写仓库地址或包名（例如 owner/repo 或 GitHub URL）' };
+          }
+          const isProjectScope = scope === 'project-agents' || scope === 'project-dsh';
+          const finalArgs = ['-y', 'skills', 'add', ...cliArgs, '-y'];
+          if (!isProjectScope && !finalArgs.includes('-g') && !finalArgs.includes('--global')) {
+            finalArgs.push('-g');
+          }
+          try {
+            const { stdout, stderr } = await execFileAsync('npx', finalArgs, {
+              cwd: cwd || homedir(),
+              timeout: 120000,
+              maxBuffer: 4 * 1024 * 1024,
+            });
+            persistAndReconcile();
+            return {
+              ...(await buildStatus(cwd, payload.sessionId)),
+              installOutput: [stdout, stderr].filter(Boolean).join('\n').trim(),
+            };
+          } catch (err) {
+            return { ok: false, error: `仓库安装失败: ${err?.stderr || err?.message || String(err)}` };
+          }
+        }
+
+        const rootDir = resolveSkillRootDir(scope, cwd);
+        if (!rootDir) return { ok: false, error: '当前没有可用的工作区目录，无法写入项目级技能' };
+        mkdirSync(rootDir, { recursive: true });
+        const imported = [];
+        const skipped = [];
+
+        if (sourceType === 'zip') {
+          const b64 = String(payload.zipBase64 || '').replace(/^data:[^;]+;base64,/, '').trim();
+          if (!b64) return { ok: false, error: '请上传有效的 .zip 压缩包' };
+          let entries;
+          try {
+            entries = extractZipEntries(Buffer.from(b64, 'base64'));
+          } catch (err) {
+            return { ok: false, error: err?.message || String(err) };
+          }
+
+          const skillRoots = new Map();
+          for (const e of entries) {
+            const parts = e.path.split('/');
+            if (parts[parts.length - 1].toLowerCase() === 'skill.md') {
+              const prefix = parts.slice(0, -1).join('/');
+              skillRoots.set(prefix, e.content.toString('utf8'));
+            }
+          }
+          if (skillRoots.size === 0) {
+            return { ok: false, error: '压缩包中未找到任何 SKILL.md 文件' };
+          }
+
+          for (const [prefix, mdText] of skillRoots.entries()) {
+            const parsed = parseSkillMarkdown(mdText);
+            const fallbackName = prefix ? prefix.split('/').pop() : '';
+            const skillName = (parsed.name || fallbackName || '').trim().toLowerCase();
+            if (!SKILL_NAME_RE.test(skillName) || !parsed.description) {
+              skipped.push({ name: skillName || prefix || 'unknown', reason: '缺少合法的 name 或 description' });
+              continue;
+            }
+            const destDir = join(rootDir, skillName);
+            if (!overwrite && existsSync(destDir)) {
+              skipped.push({ name: skillName, reason: '目标目录已存在同名技能' });
+              continue;
+            }
+            mkdirSync(destDir, { recursive: true });
+            for (const e of entries) {
+              if (prefix && !e.path.startsWith(`${prefix}/`)) continue;
+              const rel = prefix ? e.path.slice(prefix.length + 1) : e.path;
+              if (!rel) continue;
+              const outFile = join(destDir, rel);
+              if (!isWithinRoot(outFile, destDir)) continue;
+              mkdirSync(dirname(outFile), { recursive: true });
+              writeFileSync(outFile, e.content);
+            }
+            imported.push(skillName);
+          }
+        } else if (sourceType === 'local') {
+          const rawPath = String(payload.localPath || '').trim();
+          const expanded = rawPath.startsWith('~/') ? join(homedir(), rawPath.slice(2)) : rawPath;
+          if (!expanded || !isAbsolute(expanded) || !existsSync(expanded)) {
+            return { ok: false, error: `本地路径不存在或不是绝对路径: ${rawPath}` };
+          }
+
+          const candidateDirs = [];
+          if (existsSync(join(expanded, 'SKILL.md'))) {
+            candidateDirs.push(expanded);
+          } else {
+            for (const ent of readdirSync(expanded, { withFileTypes: true })) {
+              if (!ent.isDirectory() && !ent.isSymbolicLink()) continue;
+              const sub = join(expanded, ent.name);
+              if (existsSync(join(sub, 'SKILL.md'))) candidateDirs.push(sub);
+            }
+          }
+          if (candidateDirs.length === 0) {
+            return { ok: false, error: '所选本地目录及子目录中未找到 SKILL.md' };
+          }
+
+          for (const dir of candidateDirs) {
+            const parsed = parseSkillMarkdown(readFileSync(join(dir, 'SKILL.md'), 'utf8'));
+            const skillName = (parsed.name || basename(dir)).trim().toLowerCase();
+            if (!SKILL_NAME_RE.test(skillName) || !parsed.description) {
+              skipped.push({ name: skillName || basename(dir), reason: '缺少合法的 name 或 description' });
+              continue;
+            }
+            const destDir = join(rootDir, skillName);
+            if (!overwrite && existsSync(destDir)) {
+              skipped.push({ name: skillName, reason: '目标目录已存在同名技能' });
+              continue;
+            }
+            cpSync(dir, destDir, { recursive: true, force: overwrite, dereference: true });
+            imported.push(skillName);
+          }
+        } else {
+          return { ok: false, error: `不支持的导入来源: ${sourceType}` };
+        }
+
+        if (imported.length === 0 && skipped.length > 0) {
+          return { ok: false, error: `未导入任何技能：${skipped.map(s => `${s.name}(${s.reason})`).join('；')}` };
+        }
+        persistAndReconcile();
+        return { ...(await buildStatus(cwd, payload.sessionId)), imported, skipped };
+      }
+
+      case 'delete_skill': {
+        const cwd = payload.cwd || resolveDefaultCwd();
+        const skillName = String(payload.skillName || '').trim();
+        const mode = payload.mode === 'permanent' ? 'permanent' : 'archive';
+        if (!SKILL_NAME_RE.test(skillName)) {
+          return { ok: false, error: `无效的技能名称: ${skillName}` };
+        }
+
+        const rawSkills = await listUnderlyingSkills(cwd);
+        const target = rawSkills.find(s => s.name === skillName);
+        if (!target) {
+          return { ok: false, error: `未找到技能 "${skillName}"` };
+        }
+        if (!isWritableSkillLocation(target.path || '', target.source || '', cwd)) {
+          return { ok: false, error: `内置或只读技能 "${skillName}" 不支持卸载，请改用「静默隐藏」` };
+        }
+
+        const targetDir = resolveSkillDirFromPath(target.path);
+        const stat = lstatSync(targetDir);
+        if (mode === 'permanent') {
+          if (stat.isSymbolicLink()) unlinkSync(targetDir);
+          else rmSync(targetDir, { recursive: true, force: true });
+        } else {
+          const disabledRoot = join(homedir(), '.agents', 'skills-disabled');
+          mkdirSync(disabledRoot, { recursive: true });
+          let dest = join(disabledRoot, skillName);
+          if (existsSync(dest)) dest = join(disabledRoot, `${skillName}-${Date.now()}`);
+          try {
+            renameSync(targetDir, dest);
+          } catch {
+            if (stat.isSymbolicLink()) unlinkSync(targetDir);
+            else {
+              cpSync(targetDir, dest, { recursive: true, dereference: false });
+              rmSync(targetDir, { recursive: true, force: true });
+            }
+          }
+        }
+
+        delete state.skillModes[skillName];
+        for (const b of state.bundles) {
+          if (Array.isArray(b.skills) && b.skills.includes(skillName)) {
+            b.skills = b.skills.filter(s => s !== skillName);
+          }
+        }
+        persistAndReconcile();
+        return { ...(await buildStatus(cwd, payload.sessionId)), deletedSkillName: skillName, deleteMode: mode };
       }
 
       case 'toggle_mcp_server': {
@@ -1138,6 +1538,9 @@ export function apply(ctx) {
                 'save_bundle',
                 'delete_bundle',
                 'set_skill_mode',
+                'save_skill',
+                'import_skill',
+                'delete_skill',
                 'toggle_mcp_server',
                 'toggle_mcp_tool',
                 'batch_mcp_tools',
@@ -1160,12 +1563,26 @@ export function apply(ctx) {
             sessionId: { type: 'string', description: 'Target session ID for set_session_bundles or status.' },
             bundleIds: { type: 'array', items: { type: 'string' }, description: 'Bundle IDs active in the target session.' },
             reset: { type: 'boolean', description: 'Reset session bundle overrides back to global defaults.' },
-            skillName: { type: 'string', description: 'Target kebab-case skill name for set_skill_mode or read_skill.' },
+            skillName: { type: 'string', description: 'Target kebab-case skill name for set_skill_mode, read_skill, save_skill, or delete_skill.' },
             mode: {
               type: 'string',
-              enum: ['default', 'auto', 'manual', 'muted'],
-              description: 'Skill invocation mode: auto (model + /skill), manual (/skill only), muted (hidden), or default.',
+              enum: ['default', 'auto', 'manual', 'muted', 'archive', 'permanent'],
+              description: 'Skill mode (auto/manual/muted/default) or delete_skill mode (archive/permanent).',
             },
+            whenToUse: { type: 'string', description: 'Optional routing hint for save_skill.' },
+            content: { type: 'string', description: 'Markdown body for save_skill.' },
+            rawMarkdown: { type: 'string', description: 'Full SKILL.md text with frontmatter for save_skill.' },
+            scope: {
+              type: 'string',
+              enum: ['user-agents', 'user-dsh', 'project-agents', 'project-dsh'],
+              description: 'Target directory scope for save_skill or import_skill.',
+            },
+            overwrite: { type: 'boolean', description: 'Overwrite existing skill when editing or importing.' },
+            targetPath: { type: 'string', description: 'Existing SKILL.md path when editing in place.' },
+            sourceType: { type: 'string', enum: ['repo', 'local', 'zip'], description: 'Import source type for import_skill.' },
+            repoSpec: { type: 'string', description: 'Repository or skills package spec for import_skill(repo).' },
+            localPath: { type: 'string', description: 'Local directory path for import_skill(local).' },
+            zipBase64: { type: 'string', description: 'Base64-encoded .zip archive for import_skill(zip).' },
             serverName: { type: 'string', description: 'MCP server name ([A-Za-z0-9_-]{1,32}).' },
             toolName: { type: 'string', description: 'Full MCP tool name (mcp__<server>__<tool>) for toggle_mcp_tool.' },
             transport: { type: 'string', enum: ['streamable-http', 'stdio'], description: 'Transport for save_custom_mcp.' },
