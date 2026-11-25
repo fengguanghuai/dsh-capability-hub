@@ -1,9 +1,19 @@
 {
   "name": "@fengguanghuai/dsh-capability-hub",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Codex-style unified capability hub for managing MCP servers, tools, skills, and switchable capability bundles in the top-left sidebar.",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "mcp",
+    "skills",
+    "capability-hub"
+  ],
   "license": "MIT",
   "author": "fengguanghuai",
+  "engines": {
+    "dsh": ">=0.2.0-0"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/fengguanghuai/dsh-capability-hub.git"
@@ -25,6 +35,8 @@
     "cordis.patch.yml",
     "locale/*.json",
     "README.md",
+    "README.zh-CN.md",
+    "LICENSE",
     "icon.svg"
   ],
   "dsh": {
