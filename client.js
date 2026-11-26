@@ -77,6 +77,20 @@ window.__ModuleLoader__.load({
       'composer.reset': '恢复默认',
       'composer.usingDefault': '使用默认策略',
       'composer.footerHint': '仅影响当前会话',
+      'suiteState.default': '默认开启',
+      'suiteState.onDemand': '按需',
+      'suiteState.disabled': '停用',
+      'mcp.globalStop': '全局停用',
+      'mcp.globalRestore': '恢复全局',
+      'modal.globalStopTitle': '全局停用「{name}」？',
+      'modal.globalStopBody': '停用后所有套件与会话都会暂停该 MCP（适合服务异常或鉴权失效时紧急断流）。若只想在单个场景关闭，去对应套件关掉即可。',
+      'modal.deleteSuiteTitle': '删除套件「{name}」？',
+      'modal.deleteSuiteBody': '仅删除套件分组配置，不会删除本地 Skill 文件或 MCP 连接。',
+      'modal.keepCurrent': '取消',
+      'modal.confirmGlobalStop': '确认停用',
+      'modal.confirmDelete': '确认删除',
+      'toast.mcpGlobalStopped': '已全局停用 {name}',
+      'toast.mcpGlobalRestored': '已恢复 {name}',
     };
 
     const en = {
@@ -140,6 +154,20 @@ window.__ModuleLoader__.load({
       'composer.reset': 'Reset default',
       'composer.usingDefault': 'Using defaults',
       'composer.footerHint': 'Applies to this session only',
+      'suiteState.default': 'Default',
+      'suiteState.onDemand': 'On-demand',
+      'suiteState.disabled': 'Off',
+      'mcp.globalStop': 'Disable globally',
+      'mcp.globalRestore': 'Restore',
+      'modal.globalStopTitle': 'Disable "{name}" globally?',
+      'modal.globalStopBody': 'This pauses the MCP across all suites and sessions. To disable it for one workflow only, turn it off inside that suite.',
+      'modal.deleteSuiteTitle': 'Delete suite "{name}"?',
+      'modal.deleteSuiteBody': 'Only the suite grouping is removed. Local Skill files and MCP connections are kept.',
+      'modal.keepCurrent': 'Cancel',
+      'modal.confirmGlobalStop': 'Disable',
+      'modal.confirmDelete': 'Delete',
+      'toast.mcpGlobalStopped': 'Disabled {name} globally',
+      'toast.mcpGlobalRestored': 'Restored {name}',
     };
 
     const STYLES = `
@@ -413,6 +441,112 @@ window.__ModuleLoader__.load({
         border-radius: 999px;
         cursor: pointer;
       }
+      .ch-state-seg {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px;
+        border-radius: 9px;
+        background: rgba(127, 127, 127, 0.11);
+        gap: 2px;
+        flex-shrink: 0;
+      }
+      .ch-state-btn {
+        height: 24px;
+        padding: 0 10px;
+        border: none;
+        border-radius: 6.5px;
+        background: transparent;
+        color: var(--dsw-alias-label-tertiary, #717680);
+        font: inherit;
+        font-size: 11.5px;
+        font-weight: 500;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background-color 0.14s, color 0.14s, box-shadow 0.14s;
+      }
+      .ch-state-btn:hover {
+        color: var(--dsw-alias-label-primary, #18181b);
+      }
+      .ch-state-btn.active {
+        background: var(--dsw-alias-bg-base, #ffffff);
+        color: var(--dsw-alias-label-primary, #18181b);
+        font-weight: 600;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.06);
+      }
+      .ch-state-btn.active.is-disabled {
+        color: var(--dsw-alias-label-secondary, #59636e);
+      }
+      .ch-suite-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 26px;
+        padding: 0 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(127, 127, 127, 0.26);
+        background: rgba(127, 127, 127, 0.06);
+        color: var(--dsw-alias-label-secondary, #424a53);
+        font: inherit;
+        font-size: 11.5px;
+        font-weight: 500;
+        cursor: pointer;
+        white-space: nowrap;
+        max-width: 190px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+      }
+      .ch-suite-chip:hover {
+        background: rgba(127, 127, 127, 0.12);
+        border-color: rgba(127, 127, 127, 0.42);
+        color: var(--dsw-alias-label-primary, #1f2328);
+      }
+      .ch-suite-menu {
+        position: fixed;
+        z-index: 90;
+        min-width: 210px;
+        max-width: 280px;
+        padding: 5px;
+        border-radius: 12px;
+        background: var(--dsw-alias-bg-base, #ffffff);
+        border: 1px solid rgba(127, 127, 127, 0.22);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .ch-suite-menu-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        width: 100%;
+        padding: 7px 10px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--dsw-alias-label-primary, #1f2328);
+        font: inherit;
+        font-size: 12.5px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .ch-suite-menu-item:hover {
+        background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.09));
+      }
+      .ch-suite-menu-state {
+        font-size: 11px;
+        color: var(--dsw-alias-label-tertiary, #8b93a1);
+        flex-shrink: 0;
+      }
+      .ch-detail-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+      }
       .ch-section-bar {
         display: flex;
         align-items: center;
@@ -537,6 +671,9 @@ window.__ModuleLoader__.load({
       }
       .ch-switch.on {
         background: var(--dsw-alias-state-success-primary, #18794e);
+      }
+      .ch-switch.muted {
+        opacity: 0.65;
       }
       .ch-switch::after {
         content: "";
@@ -818,6 +955,135 @@ window.__ModuleLoader__.load({
         align-items: center;
         justify-content: space-between;
       }
+      .ch-toast {
+        position: absolute;
+        left: 50%;
+        top: 62px;
+        transform: translateX(-50%);
+        z-index: 60;
+        width: max-content;
+        max-width: min(520px, calc(100% - 32px));
+        padding: 9px 14px;
+        border-radius: 999px;
+        background: var(--dsw-alias-label-primary, #1f2328);
+        color: var(--dsw-alias-bg-base, #ffffff);
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+        font-size: 12.5px;
+        line-height: 1.4;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .ch-toast-close {
+        border: none;
+        background: transparent;
+        color: inherit;
+        opacity: 0.72;
+        cursor: pointer;
+        padding: 0 2px;
+        font-size: 12px;
+        line-height: 1;
+      }
+      .ch-toast-close:hover {
+        opacity: 1;
+      }
+      .ch-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        background: rgba(15, 23, 42, 0.34);
+        backdrop-filter: blur(2px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+      .ch-modal {
+        width: min(440px, 100%);
+        background: var(--dsw-alias-bg-base, #ffffff);
+        border: 1px solid var(--dsw-alias-border-l3, rgba(127,127,127,0.16));
+        border-radius: 20px;
+        padding: 24px 26px 22px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+        color: var(--dsw-alias-label-primary, #1f2328);
+      }
+      .ch-modal-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .ch-modal-title {
+        margin: 0;
+        font-size: 16.5px;
+        font-weight: 650;
+        line-height: 1.4;
+      }
+      .ch-modal-close {
+        border: none;
+        background: transparent;
+        color: var(--dsw-alias-label-tertiary, #8b93a1);
+        cursor: pointer;
+        padding: 2px 4px;
+        font-size: 16px;
+        line-height: 1;
+        border-radius: 6px;
+      }
+      .ch-modal-close:hover {
+        background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.08));
+        color: var(--dsw-alias-label-primary, #1f2328);
+      }
+      .ch-modal-body {
+        margin: 0;
+        font-size: 13.5px;
+        line-height: 1.65;
+        color: var(--dsw-alias-label-secondary, #424a53);
+      }
+      .ch-modal-suites {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 12px;
+      }
+      .ch-modal-actions {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        margin-top: 22px;
+        flex-wrap: wrap;
+      }
+      .ch-modal-btn-primary {
+        border: none;
+        border-radius: 10px;
+        padding: 9px 20px;
+        background: var(--dsw-alias-label-primary, #1f2328);
+        color: var(--dsw-alias-bg-base, #ffffff);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 550;
+        cursor: pointer;
+        transition: opacity 0.12s;
+      }
+      .ch-modal-btn-primary:hover {
+        opacity: 0.88;
+      }
+      .ch-modal-btn-secondary {
+        border: none;
+        border-radius: 10px;
+        padding: 9px 16px;
+        background: transparent;
+        color: var(--dsw-alias-label-primary, #1f2328);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.12s;
+      }
+      .ch-modal-btn-secondary:hover {
+        background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.09));
+      }
       .ch-default-pill {
         display: inline-flex;
         align-items: center;
@@ -1014,14 +1280,16 @@ window.__ModuleLoader__.load({
       return h('svg', common, h('path', { d: 'M10 3L3 6.8 10 10.6l7-3.8L10 3zM3 10.2l7 3.8 7-3.8M3 13.6l7 3.8 7-3.8' }));
     }
 
-    function Switch({ checked, onChange, label, disabled }) {
+    function Switch({ checked, onChange, label, disabled, title, muted }) {
+      const cls = checked ? 'ch-switch on' : muted ? 'ch-switch muted' : 'ch-switch';
       return h('button', {
         type: 'button',
         role: 'switch',
         'aria-checked': Boolean(checked),
         'aria-label': label || 'Toggle',
+        title,
         disabled: Boolean(disabled),
-        className: checked ? 'ch-switch on' : 'ch-switch',
+        className: cls,
         onClick: (e) => {
           e.stopPropagation();
           if (!disabled && onChange) onChange(!checked);
@@ -1084,6 +1352,10 @@ window.__ModuleLoader__.load({
       const [data, setData] = useState(null);
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState('');
+      const [notice, setNotice] = useState(null); // null | { text }
+      const [modal, setModal] = useState(null); // null | { kind: 'confirm-global-stop', serverName } | { kind: 'confirm-delete-suite', bundleId, bundleName }
+      const [suiteMenu, setSuiteMenu] = useState(null); // null | { key, bundles, subTab, top, right }
+      const noticeTimerRef = useRef(null);
       const [cwd, setCwd] = useState('');
 
       const [activeTab, setActiveTab] = useState('bundles'); // 'bundles' | 'skills' | 'mcps'
@@ -1093,6 +1365,8 @@ window.__ModuleLoader__.load({
       const [selectedBundleId, setSelectedBundleId] = useState(null);
       const [detailSubTab, setDetailSubTab] = useState('skills'); // 'skills' | 'mcps'
       const [detailMcpName, setDetailMcpName] = useState('');
+      const [detailSkillQuery, setDetailSkillQuery] = useState('');
+      const [detailToolQuery, setDetailToolQuery] = useState('');
 
       // Drawer state: null | { kind: 'skill', name } | { kind: 'mcp', name } | { kind: 'bundle-form', bundle? } | { kind: 'connect-mcp' }
       const [drawer, setDrawer] = useState(null);
@@ -1163,13 +1437,142 @@ window.__ModuleLoader__.load({
       }, [cwd, refresh]);
 
       useEffect(() => {
-        if (!drawer) return undefined;
+        if (!drawer && !modal && !suiteMenu) return undefined;
         const onKey = (e) => {
-          if (e.key === 'Escape') setDrawer(null);
+          if (e.key === 'Escape') {
+            if (suiteMenu) setSuiteMenu(null);
+            else if (modal) setModal(null);
+            else setDrawer(null);
+          }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-      }, [drawer]);
+      }, [drawer, modal, suiteMenu]);
+
+      useEffect(() => {
+        if (!suiteMenu) return undefined;
+        const close = () => setSuiteMenu(null);
+        window.addEventListener('pointerdown', close);
+        window.addEventListener('scroll', close, true);
+        window.addEventListener('resize', close);
+        return () => {
+          window.removeEventListener('pointerdown', close);
+          window.removeEventListener('scroll', close, true);
+          window.removeEventListener('resize', close);
+        };
+      }, [suiteMenu]);
+
+      useEffect(() => () => {
+        if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+      }, []);
+
+      const pauseNoticeTimer = useCallback(() => {
+        if (noticeTimerRef.current) {
+          clearTimeout(noticeTimerRef.current);
+          noticeTimerRef.current = null;
+        }
+      }, []);
+
+      const startNoticeTimer = useCallback((ms = 3500) => {
+        if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+        noticeTimerRef.current = setTimeout(() => {
+          noticeTimerRef.current = null;
+          setNotice(null);
+        }, ms);
+      }, []);
+
+      const showNotice = useCallback((nextNotice) => {
+        pauseNoticeTimer();
+        setNotice(nextNotice);
+        if (nextNotice) {
+          startNoticeTimer(2500);
+        }
+      }, [pauseNoticeTimer, startNoticeTimer]);
+
+      const jumpToSuite = useCallback((bundleId, subTab) => {
+        if (!bundleId) return;
+        setActiveTab('bundles');
+        setSelectedBundleId(bundleId);
+        if (subTab) setDetailSubTab(subTab);
+        setDetailSkillQuery('');
+        setDetailToolQuery('');
+        setDrawer(null);
+        setModal(null);
+        setSuiteMenu(null);
+        showNotice(null);
+      }, [showNotice]);
+
+      const getSuiteState = (b) => {
+        if (b.enabled === false) return 'disabled';
+        return b.defaultInject === false ? 'on_demand' : 'default';
+      };
+
+      const renderSuiteStateControl = (b) => {
+        const cur = getSuiteState(b);
+        return h(
+          'div',
+          {
+            className: 'ch-state-seg',
+            role: 'group',
+            'aria-label': b.name,
+            onClick: (e) => e.stopPropagation(),
+          },
+          [
+            { id: 'default', label: t('suiteState.default'), cls: 'is-default' },
+            { id: 'on_demand', label: t('suiteState.onDemand'), cls: 'is-on-demand' },
+            { id: 'disabled', label: t('suiteState.disabled'), cls: 'is-disabled' },
+          ].map((opt) =>
+            h(
+              'button',
+              {
+                key: opt.id,
+                type: 'button',
+                'aria-pressed': cur === opt.id,
+                className: cur === opt.id ? `ch-state-btn active ${opt.cls}` : 'ch-state-btn',
+                onClick: () => {
+                  if (cur === opt.id) return;
+                  runMutation({ action: 'set_bundle_state', bundleId: b.id, state: opt.id });
+                },
+              },
+              opt.label,
+            ),
+          ),
+        );
+      };
+
+      const renderSuiteJumpChip = (bundles, subTab, itemKey) => {
+        const list = Array.isArray(bundles) ? bundles : [];
+        if (list.length === 0) return null;
+        const first = list[0];
+        const multi = list.length > 1;
+        const label = multi ? `${first.name} +${list.length - 1} ▾` : `${first.name} ›`;
+        return h(
+          'button',
+          {
+            type: 'button',
+            className: 'ch-suite-chip',
+            title: list.map((b) => b.name).join(' / '),
+            onPointerDown: (e) => multi && e.stopPropagation(),
+            onClick: (e) => {
+              e.stopPropagation();
+              if (!multi) {
+                jumpToSuite(first.id, subTab);
+                return;
+              }
+              const menuKey = `${subTab}:${itemKey || first.id}`;
+              if (suiteMenu && suiteMenu.key === menuKey) {
+                setSuiteMenu(null);
+                return;
+              }
+              const rect = e.currentTarget.getBoundingClientRect();
+              const top = Math.min(window.innerHeight - 16 - list.length * 36, rect.bottom + 6);
+              const right = Math.max(12, window.innerWidth - rect.right);
+              setSuiteMenu({ key: menuKey, bundles: list, subTab, top: Math.max(12, top), right });
+            },
+          },
+          label,
+        );
+      };
 
       const runMutation = useCallback(async (payload) => {
         try {
@@ -1405,7 +1808,7 @@ window.__ModuleLoader__.load({
       const renderSkillModePill = (sk) => {
         if (sk.effectiveMode === 'auto') return h('span', { className: 'ch-pill ok' }, t('mode.auto'));
         if (sk.effectiveMode === 'manual') return h('span', { className: 'ch-pill info' }, t('mode.manual'));
-        return h('span', { className: 'ch-pill' }, sk.reason === 'bundle' ? t('status.mutedByBundle') : t('mode.muted'));
+        return h('span', { className: 'ch-pill' }, t('mode.muted'));
       };
 
       const renderScopeLabel = (scopeGroup) => {
@@ -1421,6 +1824,14 @@ window.__ModuleLoader__.load({
 
         if (selectedBundle) {
           const currentMcp = selectedBundle.mcpDetails?.find((m) => m.name === detailMcpName) || selectedBundle.mcpDetails?.[0];
+          const dsq = detailSkillQuery.trim().toLowerCase();
+          const filteredBundleSkills = (selectedBundle.skillDetails || []).filter(
+            (sk) => !dsq || sk.name.toLowerCase().includes(dsq) || (sk.description || '').toLowerCase().includes(dsq),
+          );
+          const dtq = detailToolQuery.trim().toLowerCase();
+          const filteredBundleTools = (currentMcp?.tools || []).filter(
+            (tl) => !dtq || tl.shortName.toLowerCase().includes(dtq) || (tl.description || '').toLowerCase().includes(dtq),
+          );
           return h(
             'div',
             null,
@@ -1437,10 +1848,7 @@ window.__ModuleLoader__.load({
                   {
                     type: 'button',
                     className: 'ch-btn ch-btn-sm ch-btn-danger',
-                    onClick: async () => {
-                      await runMutation({ action: 'delete_bundle', bundleId: selectedBundle.id });
-                      setSelectedBundleId(null);
-                    },
+                    onClick: () => setModal({ kind: 'confirm-delete-suite', bundleId: selectedBundle.id, bundleName: selectedBundle.name }),
                   },
                   t('btn.deleteBundle'),
                 ),
@@ -1472,48 +1880,11 @@ window.__ModuleLoader__.load({
                   h('p', { style: { margin: '6px 0 0', color: 'var(--dsw-alias-label-secondary)', fontSize: 13 } }, selectedBundle.description),
                 ),
               ),
-              h(
-                'div',
-                { className: 'ch-status-cols' },
-                h(
-                  'div',
-                  { className: 'ch-status-col' },
-                  h('span', { className: 'ch-status-label' }, 'MCP status'),
-                  h(
-                    'span',
-                    { className: selectedBundle.hasIssue ? 'ch-pill warn' : selectedBundle.enabled ? 'ch-pill ok' : 'ch-pill' },
-                    selectedBundle.hasIssue ? t('status.failed') : selectedBundle.enabled ? `${selectedBundle.mcps.length} active` : t('status.muted'),
-                  ),
-                ),
-                h(
-                  'div',
-                  { className: 'ch-status-col' },
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: `ch-default-pill ${selectedBundle.defaultInject !== false ? 'on' : 'off'}`,
-                      title: '切换新开会话是否默认注入此套件',
-                      onClick: () => runMutation({
-                        action: 'set_bundle_default_inject',
-                        bundleId: selectedBundle.id,
-                        defaultInject: selectedBundle.defaultInject === false,
-                      }),
-                    },
-                    selectedBundle.defaultInject !== false ? t('defaultInject.on') : t('defaultInject.off'),
-                  ),
-                  h('span', { className: 'ch-status-label' }, t('status.active')),
-                  h(Switch, {
-                    checked: selectedBundle.enabled,
-                    label: selectedBundle.name,
-                    onChange: (next) => runMutation({ action: 'toggle_bundle', bundleId: selectedBundle.id, enabled: next }),
-                  }),
-                ),
-              ),
+              renderSuiteStateControl(selectedBundle),
             ),
             h(
               'div',
-              { className: 'ch-toolbar', style: { marginBottom: 18 } },
+              { className: 'ch-toolbar', style: { marginBottom: 14 } },
               h(
                 'div',
                 { className: 'ch-tabs', role: 'tablist' },
@@ -1548,73 +1919,25 @@ window.__ModuleLoader__.load({
               ? (selectedBundle.skillDetails.length === 0
                   ? h('div', { className: 'ch-empty' }, '此套件暂未关联 Skill，点击右上角「编辑套件」可勾选添加。')
                   : h(
-                      'table',
-                      { className: 'ch-table' },
-                      h(
-                        'thead',
-                        null,
-                        h(
-                          'tr',
-                          null,
-                          h('th', { style: { width: '24%' } }, 'Skill'),
-                          h('th', { className: 'ch-table-nowrap', style: { width: '13%' } }, '来源'),
-                          h('th', null, '用途说明'),
-                          h('th', { className: 'ch-table-nowrap', style: { width: '15%', textAlign: 'right' } }, '暴露模式'),
-                        ),
-                      ),
-                      h(
-                        'tbody',
-                        null,
-                        selectedBundle.skillDetails.map((sk) =>
-                          h(
-                            'tr',
-                            { key: sk.name, className: 'clickable', onClick: () => sk.source !== 'missing' && openSkillDrawer(sk.name) },
-                            h('td', { className: 'ch-mono', style: { fontWeight: 600 } }, sk.name),
-                            h('td', { className: 'ch-table-nowrap', style: { color: 'var(--dsw-alias-label-tertiary)' } }, renderScopeLabel(sk.scopeGroup)),
-                            h('td', null, h('div', { className: 'ch-table-desc', title: sk.description }, sk.description)),
-                            h('td', { className: 'ch-table-nowrap', style: { textAlign: 'right' } }, renderSkillModePill(sk)),
-                          ),
-                        ),
-                      ),
-                    ))
-              : (selectedBundle.mcpDetails.length === 0
-                  ? h('div', { className: 'ch-empty' }, '此套件暂未关联 MCP 服务，点击右上角「编辑套件」可勾选添加。')
-                  : h(
                       'div',
                       null,
-                      h(
-                        'div',
-                        { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8, flexWrap: 'wrap' } },
-                        h(
-                          'div',
-                          { style: { display: 'flex', alignItems: 'center', gap: 10 } },
-                          selectedBundle.mcpDetails.length > 1
-                            ? h(
-                                'select',
-                                {
-                                  className: 'ch-select ch-mono',
-                                  value: currentMcp?.name || '',
-                                  onChange: (e) => setDetailMcpName(e.target.value),
-                                },
-                                selectedBundle.mcpDetails.map((m) =>
-                                  h('option', { key: m.name, value: m.name }, `${m.name} (${m.activeTools}/${m.totalTools})`),
-                                ),
-                              )
-                            : h('span', { className: 'ch-mono', style: { fontWeight: 600, fontSize: 13.5 } }, currentMcp?.name),
-                          currentMcp
-                            ? h(
-                                'span',
-                                { className: currentMcp.enabled ? 'ch-pill ok' : 'ch-pill' },
-                                `${currentMcp.activeTools}/${currentMcp.totalTools} tools`,
-                              )
-                            : null,
-                        ),
-                        currentMcp
-                          ? h('button', { type: 'button', className: 'ch-btn ch-btn-sm', onClick: () => openMcpDrawer(currentMcp.name) }, '连接与 JSON 配置 ›')
-                          : null,
-                      ),
-                      currentMcp && currentMcp.tools?.length > 0
+                      selectedBundle.skillDetails.length > 5
                         ? h(
+                            'div',
+                            { style: { marginBottom: 10 } },
+                            h('input', {
+                              type: 'search',
+                              className: 'ch-input',
+                              style: { height: 28, padding: '0 10px', width: 240, maxWidth: '100%' },
+                              placeholder: '筛选 Skill…',
+                              value: detailSkillQuery,
+                              onChange: (e) => setDetailSkillQuery(e.target.value),
+                            }),
+                          )
+                        : null,
+                      filteredBundleSkills.length === 0
+                        ? h('div', { className: 'ch-empty' }, t('empty.list'))
+                        : h(
                             'table',
                             { className: 'ch-table' },
                             h(
@@ -1623,34 +1946,217 @@ window.__ModuleLoader__.load({
                               h(
                                 'tr',
                                 null,
-                                h('th', { style: { width: '32%' } }, 'Tool'),
-                                h('th', null, '描述'),
+                                h('th', { style: { width: '26%' } }, 'Skill'),
+                                h('th', { className: 'ch-table-nowrap', style: { width: '11%' } }, '来源'),
+                                h('th', null, '用途说明'),
                                 h('th', { className: 'ch-table-nowrap', style: { width: 72, textAlign: 'right' } }, '启用'),
                               ),
                             ),
                             h(
                               'tbody',
                               null,
-                              currentMcp.tools.map((tl) =>
-                                h(
+                              filteredBundleSkills.map((sk) => {
+                                const bEff = sk.bundleEffectiveMode || sk.effectiveMode || 'auto';
+                                const isOn = sk.source !== 'missing' && bEff !== 'muted';
+                                return h(
                                   'tr',
-                                  { key: tl.name },
-                                  h('td', { className: 'ch-mono', style: { fontWeight: 500 } }, tl.shortName),
-                                  h('td', null, h('div', { className: 'ch-table-desc', title: tl.description || '' }, tl.description || '—')),
+                                  { key: sk.name, className: 'clickable', onClick: () => sk.source !== 'missing' && openSkillDrawer(sk.name) },
                                   h(
                                     'td',
-                                    { className: 'ch-table-nowrap', style: { textAlign: 'right' } },
+                                    null,
+                                    h(
+                                      'div',
+                                      { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
+                                      h('span', { className: 'ch-mono', style: { fontWeight: 600 } }, sk.name),
+                                      isOn && bEff === 'manual'
+                                        ? h('span', { className: 'ch-slug' }, '仅手动')
+                                        : null,
+                                    ),
+                                  ),
+                                  h('td', { className: 'ch-table-nowrap', style: { color: 'var(--dsw-alias-label-tertiary)' } }, renderScopeLabel(sk.scopeGroup)),
+                                  h('td', null, h('div', { className: 'ch-table-desc', title: sk.description }, sk.description)),
+                                  h(
+                                    'td',
+                                    {
+                                      className: 'ch-table-nowrap',
+                                      style: { textAlign: 'right' },
+                                      onClick: (e) => e.stopPropagation(),
+                                    },
                                     h(Switch, {
-                                      checked: tl.enabled,
-                                      disabled: !currentMcp.enabled,
-                                      label: tl.shortName,
-                                      onChange: (next) => runMutation({ action: 'toggle_mcp_tool', toolName: tl.name, enabled: next }),
+                                      checked: isOn,
+                                      disabled: sk.source === 'missing',
+                                      label: sk.name,
+                                      onChange: (next) => {
+                                        const nextMode = next
+                                          ? (sk.globalDefaultMode && sk.globalDefaultMode !== 'muted' ? 'default' : 'auto')
+                                          : 'muted';
+                                        runMutation({
+                                          action: 'set_bundle_skill_mode',
+                                          bundleId: selectedBundle.id,
+                                          skillName: sk.name,
+                                          mode: nextMode,
+                                        });
+                                      },
                                     }),
                                   ),
-                                ),
-                              ),
+                                );
+                              }),
                             ),
+                          ),
+                    ))
+              : (selectedBundle.mcpDetails.length === 0
+                  ? h('div', { className: 'ch-empty' }, '此套件暂未关联 MCP 服务，点击右上角「编辑套件」可勾选添加。')
+                  : h(
+                      'div',
+                      null,
+                      h(
+                        'div',
+                        { className: 'ch-detail-bar' },
+                        h(
+                          'div',
+                          { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' } },
+                          selectedBundle.mcpDetails.length > 1
+                            ? h(
+                                'select',
+                                {
+                                  className: 'ch-select ch-mono',
+                                  value: currentMcp?.name || '',
+                                  onChange: (e) => {
+                                    setDetailMcpName(e.target.value);
+                                    setDetailToolQuery('');
+                                  },
+                                },
+                                selectedBundle.mcpDetails.map((m) =>
+                                  h('option', { key: m.name, value: m.name }, `${m.name} (${m.bundleActiveTools ?? m.activeTools}/${m.totalTools})`),
+                                ),
+                              )
+                            : h('span', { className: 'ch-mono', style: { fontWeight: 600, fontSize: 13.5 } }, currentMcp?.name),
+                          currentMcp
+                            ? h(
+                                'span',
+                                { className: currentMcp.bundleEnabled !== false && !currentMcp.globallyDisabled ? 'ch-pill ok' : 'ch-pill' },
+                                `${currentMcp.bundleActiveTools ?? currentMcp.activeTools}/${currentMcp.totalTools} tools`,
+                              )
+                            : null,
+                          currentMcp && currentMcp.source !== 'missing'
+                            ? h(Switch, {
+                                checked: currentMcp.bundleEnabled !== false && !currentMcp.globallyDisabled,
+                                disabled: Boolean(currentMcp.globallyDisabled),
+                                label: currentMcp.name,
+                                onChange: (next) => runMutation({
+                                  action: 'toggle_bundle_mcp',
+                                  bundleId: selectedBundle.id,
+                                  serverName: currentMcp.name,
+                                  enabled: next,
+                                }),
+                              })
+                            : null,
+                        ),
+                        h(
+                          'div',
+                          { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
+                          currentMcp && currentMcp.tools?.length > 0
+                            ? h(
+                                React.Fragment,
+                                null,
+                                h(
+                                  'button',
+                                  {
+                                    type: 'button',
+                                    className: 'ch-btn ch-btn-sm',
+                                    disabled: currentMcp.bundleEnabled === false || Boolean(currentMcp.globallyDisabled),
+                                    onClick: () => runMutation({
+                                      action: 'batch_bundle_mcp_tools',
+                                      bundleId: selectedBundle.id,
+                                      serverName: currentMcp.name,
+                                      enabled: true,
+                                    }),
+                                  },
+                                  t('btn.enableAll'),
+                                ),
+                                h(
+                                  'button',
+                                  {
+                                    type: 'button',
+                                    className: 'ch-btn ch-btn-sm',
+                                    disabled: currentMcp.bundleEnabled === false || Boolean(currentMcp.globallyDisabled),
+                                    onClick: () => runMutation({
+                                      action: 'batch_bundle_mcp_tools',
+                                      bundleId: selectedBundle.id,
+                                      serverName: currentMcp.name,
+                                      enabled: false,
+                                    }),
+                                  },
+                                  t('btn.disableAll'),
+                                ),
+                              )
+                            : null,
+                          currentMcp
+                            ? h('button', { type: 'button', className: 'ch-btn ch-btn-sm', onClick: () => openMcpDrawer(currentMcp.name) }, '配置 ›')
+                            : null,
+                        ),
+                      ),
+                      currentMcp && (currentMcp.tools || []).length > 5
+                        ? h(
+                            'div',
+                            { style: { marginBottom: 10 } },
+                            h('input', {
+                              type: 'search',
+                              className: 'ch-input',
+                              style: { height: 28, padding: '0 10px', width: 240, maxWidth: '100%' },
+                              placeholder: '筛选 Tool…',
+                              value: detailToolQuery,
+                              onChange: (e) => setDetailToolQuery(e.target.value),
+                            }),
                           )
+                        : null,
+                      currentMcp && currentMcp.tools?.length > 0
+                        ? (filteredBundleTools.length === 0
+                            ? h('div', { className: 'ch-empty' }, '无匹配工具')
+                            : h(
+                                'table',
+                                { className: 'ch-table' },
+                                h(
+                                  'thead',
+                                  null,
+                                  h(
+                                    'tr',
+                                    null,
+                                    h('th', { style: { width: '32%' } }, 'Tool'),
+                                    h('th', null, '描述'),
+                                    h('th', { className: 'ch-table-nowrap', style: { width: 72, textAlign: 'right' } }, '启用'),
+                                  ),
+                                ),
+                                h(
+                                  'tbody',
+                                  null,
+                                  filteredBundleTools.map((tl) => {
+                                    const toolChecked = tl.bundleEnabled !== false;
+                                    const toolDisabled = currentMcp.bundleEnabled === false || Boolean(currentMcp.globallyDisabled);
+                                    return h(
+                                      'tr',
+                                      { key: tl.name },
+                                      h('td', { className: 'ch-mono', style: { fontWeight: 500 } }, tl.shortName),
+                                      h('td', null, h('div', { className: 'ch-table-desc', title: tl.description || '' }, tl.description || '—')),
+                                      h(
+                                        'td',
+                                        { className: 'ch-table-nowrap', style: { textAlign: 'right' } },
+                                        h(Switch, {
+                                          checked: toolChecked,
+                                          disabled: toolDisabled,
+                                          label: tl.shortName,
+                                          onChange: (next) => runMutation({
+                                            action: 'toggle_bundle_mcp_tool',
+                                            bundleId: selectedBundle.id,
+                                            toolName: tl.name,
+                                            enabled: next,
+                                          }),
+                                        }),
+                                      ),
+                                    );
+                                  }),
+                                ),
+                              ))
                         : h('div', { className: 'ch-empty' }, '该 MCP 服务当前未暴露可用工具。'),
                     )),
           );
@@ -1805,29 +2311,7 @@ window.__ModuleLoader__.load({
                         h(
                           'div',
                           { className: 'ch-row-right' },
-                          h(
-                            'button',
-                            {
-                              type: 'button',
-                              className: `ch-default-pill ${b.defaultInject !== false ? 'on' : 'off'}`,
-                              title: '切换新开会话是否默认注入此套件',
-                              onClick: (e) => {
-                                e.stopPropagation();
-                                runMutation({
-                                  action: 'set_bundle_default_inject',
-                                  bundleId: b.id,
-                                  defaultInject: b.defaultInject === false,
-                                });
-                              },
-                            },
-                            b.defaultInject !== false ? t('defaultInject.on') : t('defaultInject.off'),
-                          ),
-                          h('span', { className: 'ch-slug' }, '详情 ›'),
-                          h(Switch, {
-                            checked: b.enabled,
-                            label: b.name,
-                            onChange: (next) => runMutation({ action: 'toggle_bundle', bundleId: b.id, enabled: next }),
-                          }),
+                          renderSuiteStateControl(b),
                         ),
                       ),
                     ),
@@ -1839,7 +2323,7 @@ window.__ModuleLoader__.load({
                   h(
                     'div',
                     { className: 'ch-section-bar' },
-                    h('span', null, `点击任意行在右侧抽屉查看 SKILL.md 与触发策略`),
+                    h('span', null, `点击任意行查看 SKILL.md 与配置`),
                     h('span', null, `${filteredSkills.length} / ${data?.skills?.length || 0}`),
                   ),
                   filteredSkills.length === 0
@@ -1847,8 +2331,9 @@ window.__ModuleLoader__.load({
                     : h(
                         'div',
                         { className: 'ch-list' },
-                        filteredSkills.map((sk) =>
-                          h(
+                        filteredSkills.map((sk) => {
+                          const inBundle = Boolean(sk.bundles && sk.bundles.length > 0);
+                          return h(
                             'div',
                             { key: sk.name, className: 'ch-row', onClick: () => openSkillDrawer(sk.name) },
                             h(
@@ -1863,9 +2348,6 @@ window.__ModuleLoader__.load({
                                   { className: 'ch-row-title-line' },
                                   h('span', { className: 'ch-row-name ch-mono' }, sk.name),
                                   h('span', { className: 'ch-slug' }, renderScopeLabel(sk.scopeGroup)),
-                                  ...(sk.bundles || []).map((b) =>
-                                    h('span', { key: b.id, className: 'ch-pill' }, b.name),
-                                  ),
                                 ),
                                 h('div', { className: 'ch-row-desc' }, sk.description),
                               ),
@@ -1873,20 +2355,26 @@ window.__ModuleLoader__.load({
                             h(
                               'div',
                               { className: 'ch-row-right' },
-                              renderSkillModePill(sk),
-                              h(Switch, {
-                                checked: sk.effectiveMode !== 'muted',
-                                label: sk.name,
-                                onChange: (next) =>
-                                  runMutation({
-                                    action: 'set_skill_mode',
-                                    skillName: sk.name,
-                                    mode: next ? 'auto' : 'muted',
-                                  }),
-                              }),
+                              inBundle
+                                ? renderSuiteJumpChip(sk.bundles, 'skills', sk.name)
+                                : h(
+                                    React.Fragment,
+                                    null,
+                                    sk.effectiveMode === 'manual' ? renderSkillModePill(sk) : null,
+                                    h(Switch, {
+                                      checked: sk.effectiveMode !== 'muted',
+                                      label: sk.name,
+                                      onChange: (next) =>
+                                        runMutation({
+                                          action: 'set_skill_mode',
+                                          skillName: sk.name,
+                                          mode: next ? 'auto' : 'muted',
+                                        }),
+                                    }),
+                                  ),
                             ),
-                          ),
-                        ),
+                          );
+                        }),
                       ),
                 )
               : h(
@@ -1895,7 +2383,7 @@ window.__ModuleLoader__.load({
                   h(
                     'div',
                     { className: 'ch-section-bar' },
-                    h('span', null, '点击任意 MCP 服务在右侧抽屉按需开关细分 Tool 与预览 JSON'),
+                    h('span', null, '点击任意 MCP 服务查看工具列表与 JSON 配置'),
                     h('span', null, `${filteredMcps.length} / ${data?.mcps?.length || 0}`),
                   ),
                   filteredMcps.length === 0
@@ -1903,8 +2391,9 @@ window.__ModuleLoader__.load({
                     : h(
                         'div',
                         { className: 'ch-list' },
-                        filteredMcps.map((m) =>
-                          h(
+                        filteredMcps.map((m) => {
+                          const inBundle = Boolean(m.bundles && m.bundles.length > 0);
+                          return h(
                             'div',
                             { key: m.name, className: 'ch-row', onClick: () => openMcpDrawer(m.name) },
                             h(
@@ -1919,22 +2408,11 @@ window.__ModuleLoader__.load({
                                   { className: 'ch-row-title-line' },
                                   h('span', { className: 'ch-row-name ch-mono' }, m.name),
                                   h('span', { className: 'ch-slug ch-mono' }, m.transport),
-                                  h(
-                                    'span',
-                                    {
-                                      className:
-                                        !m.enabled
-                                          ? 'ch-pill'
-                                          : m.connectionState === 'failed'
-                                            ? 'ch-pill warn'
-                                            : 'ch-pill ok',
-                                    },
-                                    !m.enabled
-                                      ? (m.disableReason === 'bundle' ? t('status.mutedByBundle') : t('status.muted'))
-                                      : m.connectionState === 'failed'
-                                        ? t('status.failed')
-                                        : `${t('status.connected')} · ${m.activeTools}/${m.totalTools}`,
-                                  ),
+                                  m.connectionState === 'failed'
+                                    ? h('span', { className: 'ch-pill warn' }, t('status.failed'))
+                                    : m.disableReason === 'manual'
+                                      ? h('span', { className: 'ch-pill' }, t('status.muted'))
+                                      : h('span', { className: 'ch-slug' }, `${m.totalTools} tools`),
                                 ),
                                 h(
                                   'div',
@@ -1946,15 +2424,30 @@ window.__ModuleLoader__.load({
                             h(
                               'div',
                               { className: 'ch-row-right' },
-                              h('span', { className: 'ch-slug' }, 'Tools ›'),
-                              h(Switch, {
-                                checked: m.enabled,
-                                label: m.name,
-                                onChange: (next) => runMutation({ action: 'toggle_mcp_server', serverName: m.name, enabled: next }),
-                              }),
+                              inBundle
+                                ? (m.disableReason === 'manual'
+                                    ? h(
+                                        'button',
+                                        {
+                                          type: 'button',
+                                          className: 'ch-btn ch-btn-sm',
+                                          onClick: async (e) => {
+                                            e.stopPropagation();
+                                            const ok = await runMutation({ action: 'toggle_mcp_server', serverName: m.name, enabled: true });
+                                            if (ok) showNotice({ text: t('toast.mcpGlobalRestored').replace('{name}', m.name) });
+                                          },
+                                        },
+                                        t('mcp.globalRestore'),
+                                      )
+                                    : renderSuiteJumpChip(m.bundles, 'mcps', m.name))
+                                : h(Switch, {
+                                    checked: m.enabled,
+                                    label: m.name,
+                                    onChange: (next) => runMutation({ action: 'toggle_mcp_server', serverName: m.name, enabled: next }),
+                                  }),
                             ),
-                          ),
-                        ),
+                          );
+                        }),
                       ),
                 ),
         );
@@ -2069,13 +2562,24 @@ window.__ModuleLoader__.load({
                 renderSkillModePill(sk),
                 h('span', { className: 'ch-pill' }, `${renderScopeLabel(sk.scopeGroup)} (${sk.source})`),
                 !sk.writable ? h('span', { className: 'ch-pill' }, '只读内置') : null,
-                ...(sk.bundles || []).map((b) => h('span', { key: b.id, className: 'ch-pill' }, `套件: ${b.name}`)),
+                ...(sk.bundles || []).map((b) =>
+                  h(
+                    'button',
+                    {
+                      key: b.id,
+                      type: 'button',
+                      className: 'ch-suite-chip',
+                      onClick: () => jumpToSuite(b.id, 'skills'),
+                    },
+                    `${b.name} ›`,
+                  ),
+                ),
               ),
               h('div', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12.5 } }, sk.description),
               h(
                 'div',
                 { className: 'ch-field' },
-                h('span', { className: 'ch-label' }, '触发与上下文注入策略（不修改磁盘 SKILL.md）'),
+                h('span', { className: 'ch-label' }, '触发方式（不修改磁盘 SKILL.md）'),
                 h(
                   'div',
                   { className: 'ch-seg' },
@@ -2162,10 +2666,21 @@ window.__ModuleLoader__.load({
                 h(
                   'div',
                   { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
-                  h('span', { className: m.enabled ? 'ch-pill ok' : 'ch-pill' }, m.enabled ? t('status.connected') : t('status.muted')),
                   h('span', { className: 'ch-pill ch-mono' }, m.transport),
                   m.hasAuth ? h('span', { className: 'ch-pill ok' }, '已配置鉴权') : null,
-                  h('span', { className: 'ch-pill' }, `${m.activeTools}/${m.totalTools} tools`),
+                  h('span', { className: 'ch-pill' }, `${m.totalTools} tools`),
+                  ...(m.bundles || []).map((b) =>
+                    h(
+                      'button',
+                      {
+                        key: b.id,
+                        type: 'button',
+                        className: 'ch-suite-chip',
+                        onClick: () => jumpToSuite(b.id, 'mcps'),
+                      },
+                      `${b.name} ›`,
+                    ),
+                  ),
                 ),
                 h(
                   'div',
@@ -2198,11 +2713,34 @@ window.__ModuleLoader__.load({
                         t('btn.deleteBundle'),
                       )
                     : null,
-                  h(Switch, {
-                    checked: m.enabled,
-                    label: m.name,
-                    onChange: (next) => runMutation({ action: 'toggle_mcp_server', serverName: m.name, enabled: next }),
-                  }),
+                  (m.bundles && m.bundles.length > 0)
+                    ? (m.disableReason === 'manual'
+                        ? h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'ch-btn ch-btn-sm',
+                              onClick: async () => {
+                                const ok = await runMutation({ action: 'toggle_mcp_server', serverName: m.name, enabled: true });
+                                if (ok) showNotice({ text: t('toast.mcpGlobalRestored').replace('{name}', m.name) });
+                              },
+                            },
+                            t('mcp.globalRestore'),
+                          )
+                        : h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'ch-btn ch-btn-sm ch-btn-danger',
+                              onClick: () => setModal({ kind: 'confirm-global-stop', serverName: m.name }),
+                            },
+                            t('mcp.globalStop'),
+                          ))
+                    : h(Switch, {
+                        checked: m.enabled,
+                        label: m.name,
+                        onChange: (next) => runMutation({ action: 'toggle_mcp_server', serverName: m.name, enabled: next }),
+                      }),
                 ),
               ),
               m.lastError ? h('div', { className: 'ch-banner-err' }, m.lastError) : null,
@@ -2212,12 +2750,12 @@ window.__ModuleLoader__.load({
                 h(
                   'div',
                   { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 } },
-                  h('span', { className: 'ch-label' }, `细分工具开关 (${tools.length})`),
+                  h('span', { className: 'ch-label' }, `细分工具 (${tools.length})`),
                   h(
                     'div',
                     { style: { display: 'flex', gap: 6 } },
-                    h('button', { type: 'button', className: 'ch-btn ch-btn-sm', onClick: () => runMutation({ action: 'batch_mcp_tools', serverName: m.name, enabled: true }) }, t('btn.enableAll')),
-                    h('button', { type: 'button', className: 'ch-btn ch-btn-sm', onClick: () => runMutation({ action: 'batch_mcp_tools', serverName: m.name, enabled: false }) }, t('btn.disableAll')),
+                    h('button', { type: 'button', className: 'ch-btn ch-btn-sm', disabled: m.disableReason === 'manual', onClick: () => runMutation({ action: 'batch_mcp_tools', serverName: m.name, enabled: true }) }, t('btn.enableAll')),
+                    h('button', { type: 'button', className: 'ch-btn ch-btn-sm', disabled: m.disableReason === 'manual', onClick: () => runMutation({ action: 'batch_mcp_tools', serverName: m.name, enabled: false }) }, t('btn.disableAll')),
                   ),
                 ),
                 (m.tools || []).length > 5
@@ -2234,15 +2772,17 @@ window.__ModuleLoader__.load({
                   { className: 'ch-checklist', style: { maxHeight: 240 } },
                   tools.length === 0
                     ? h('div', { style: { padding: 12, color: 'var(--dsw-alias-label-tertiary)' } }, '无匹配工具')
-                    : tools.map((tl) =>
-                        h(
+                    : tools.map((tl) => {
+                        const globalChecked = !tl.individuallyDisabled;
+                        const locked = m.disableReason === 'manual';
+                        return h(
                           'div',
                           {
                             key: tl.name,
                             className: 'ch-check-item',
                             style: { justifyContent: 'space-between' },
                             onClick: () =>
-                              m.enabled && runMutation({ action: 'toggle_mcp_tool', toolName: tl.name, enabled: !tl.enabled }),
+                              !locked && runMutation({ action: 'toggle_mcp_tool', toolName: tl.name, enabled: !globalChecked }),
                           },
                           h(
                             'div',
@@ -2265,13 +2805,13 @@ window.__ModuleLoader__.load({
                               : null,
                           ),
                           h(Switch, {
-                            checked: tl.enabled,
-                            disabled: !m.enabled,
+                            checked: globalChecked,
+                            disabled: locked,
                             label: tl.shortName,
                             onChange: (next) => runMutation({ action: 'toggle_mcp_tool', toolName: tl.name, enabled: next }),
                           }),
-                        ),
-                      ),
+                        );
+                      }),
                 ),
               ),
               h(
@@ -3245,6 +3785,123 @@ window.__ModuleLoader__.load({
               ),
             )
           : null,
+        notice
+          ? h(
+              'div',
+              {
+                className: 'ch-toast',
+                role: 'status',
+                'aria-live': 'polite',
+                onMouseEnter: pauseNoticeTimer,
+                onMouseLeave: () => startNoticeTimer(2000),
+              },
+              h('span', null, notice.text),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'ch-toast-close',
+                  'aria-label': 'Close',
+                  onClick: () => showNotice(null),
+                },
+                '✕',
+              ),
+            )
+          : null,
+        modal
+          ? (() => {
+              const isStop = modal.kind === 'confirm-global-stop';
+              const isDelSuite = modal.kind === 'confirm-delete-suite';
+              if (!isStop && !isDelSuite) return null;
+              const title = isStop
+                ? t('modal.globalStopTitle').replace('{name}', modal.serverName)
+                : t('modal.deleteSuiteTitle').replace('{name}', modal.bundleName);
+              const body = isStop ? t('modal.globalStopBody') : t('modal.deleteSuiteBody');
+              const confirmLabel = isStop ? t('modal.confirmGlobalStop') : t('modal.confirmDelete');
+              const onConfirm = async () => {
+                if (isStop) {
+                  const srv = modal.serverName;
+                  const res = await runMutation({ action: 'toggle_mcp_server', serverName: srv, enabled: false });
+                  setModal(null);
+                  if (res) showNotice({ text: t('toast.mcpGlobalStopped').replace('{name}', srv) });
+                } else {
+                  const bid = modal.bundleId;
+                  const res = await runMutation({ action: 'delete_bundle', bundleId: bid });
+                  setModal(null);
+                  if (res) setSelectedBundleId(null);
+                }
+              };
+              const modalNode = h(
+                'div',
+                { className: 'ch-modal-backdrop', onClick: () => setModal(null) },
+                h(
+                  'div',
+                  {
+                    className: 'ch-modal',
+                    role: 'dialog',
+                    'aria-modal': 'true',
+                    'aria-label': title,
+                    onClick: (e) => e.stopPropagation(),
+                  },
+                  h(
+                    'div',
+                    { className: 'ch-modal-head' },
+                    h('h3', { className: 'ch-modal-title' }, title),
+                    h('button', { type: 'button', className: 'ch-modal-close', 'aria-label': 'Close', onClick: () => setModal(null) }, '✕'),
+                  ),
+                  h('p', { className: 'ch-modal-body' }, body),
+                  h(
+                    'div',
+                    { className: 'ch-modal-actions' },
+                    h('button', { type: 'button', className: 'ch-modal-btn-primary', onClick: () => setModal(null) }, t('modal.keepCurrent')),
+                    h('button', { type: 'button', className: 'ch-modal-btn-secondary', onClick: onConfirm }, confirmLabel),
+                  ),
+                ),
+              );
+              if (ReactDOM && typeof ReactDOM.createPortal === 'function' && typeof document !== 'undefined') {
+                return ReactDOM.createPortal(modalNode, document.body);
+              }
+              return modalNode;
+            })()
+          : null,
+        suiteMenu
+          ? (() => {
+              const menuNode = h(
+                'div',
+                {
+                  className: 'ch-suite-menu',
+                  role: 'menu',
+                  style: { top: `${suiteMenu.top}px`, right: `${suiteMenu.right}px` },
+                  onPointerDown: (e) => e.stopPropagation(),
+                },
+                suiteMenu.bundles.map((b) => {
+                  const full = (data?.bundles || []).find((x) => x.id === b.id) || b;
+                  const st = getSuiteState(full);
+                  const stLabel = st === 'default'
+                    ? t('suiteState.default')
+                    : st === 'on_demand'
+                      ? t('suiteState.onDemand')
+                      : t('suiteState.disabled');
+                  return h(
+                    'button',
+                    {
+                      key: b.id,
+                      type: 'button',
+                      role: 'menuitem',
+                      className: 'ch-suite-menu-item',
+                      onClick: () => jumpToSuite(b.id, suiteMenu.subTab),
+                    },
+                    h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, b.name),
+                    h('span', { className: 'ch-suite-menu-state' }, stLabel),
+                  );
+                }),
+              );
+              if (ReactDOM && typeof ReactDOM.createPortal === 'function' && typeof document !== 'undefined') {
+                return ReactDOM.createPortal(menuNode, document.body);
+              }
+              return menuNode;
+            })()
+          : null,
       );
     }
 
@@ -3372,8 +4029,12 @@ window.__ModuleLoader__.load({
               ? h('div', { style: { padding: '14px 8px', textAlign: 'center', fontSize: 12, color: 'var(--dsw-alias-label-tertiary, #8b93a1)' } }, t('empty.list'))
               : enabledBundles.map((b) => {
                   const checked = activeIds.has(b.id);
-                  const toolCount = (b.mcpDetails || []).reduce((acc, m) => acc + (m.totalTools || 0), 0);
-                  const skillCount = (b.skillDetails || []).length;
+                  const totalToolCount = (b.mcpDetails || []).reduce((acc, m) => acc + (m.totalTools || 0), 0);
+                  const activeToolCount = (b.mcpDetails || []).reduce((acc, m) => acc + (m.bundleActiveTools ?? m.totalTools ?? 0), 0);
+                  const totalSkillCount = (b.skillDetails || []).length;
+                  const activeSkillCount = (b.skillDetails || []).filter((s) => (s.bundleEffectiveMode ?? s.effectiveMode) !== 'muted').length;
+                  const toolLabel = activeToolCount !== totalToolCount ? `${activeToolCount}/${totalToolCount}` : `${totalToolCount}`;
+                  const skillLabel = activeSkillCount !== totalSkillCount ? `${activeSkillCount}/${totalSkillCount}` : `${totalSkillCount}`;
                   return h(
                     'label',
                     { key: b.id, className: 'ch-sp-item' },
@@ -3399,7 +4060,7 @@ window.__ModuleLoader__.load({
                       h(
                         'div',
                         { className: 'ch-sp-meta' },
-                        `${toolCount} 工具 · ${skillCount} Skills`,
+                        `${toolLabel} 工具 · ${skillLabel} Skills`,
                       ),
                     ),
                   );

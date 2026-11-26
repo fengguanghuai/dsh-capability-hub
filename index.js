@@ -45,6 +45,67 @@ function emptyState() {
   };
 }
 
+function sanitizeBundleSkillModes(raw, allowedSkills) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  const allowSet = Array.isArray(allowedSkills) ? new Set(allowedSkills) : null;
+  for (const [k, v] of Object.entries(raw)) {
+    const key = String(k || '').trim();
+    if (!key || key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+    if (allowSet && !allowSet.has(key)) continue;
+    if (v === 'auto' || v === 'manual' || v === 'muted') {
+      out[key] = v;
+    }
+  }
+  return out;
+}
+
+function sanitizeBundleDisabledMcps(raw, allowedMcps) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  const allowSet = Array.isArray(allowedMcps) ? new Set(allowedMcps) : null;
+  for (const [k, v] of Object.entries(raw)) {
+    const key = String(k || '').trim();
+    if (!key || key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+    if (allowSet && !allowSet.has(key)) continue;
+    if (v === true) out[key] = true;
+  }
+  return out;
+}
+
+function sanitizeBundleDisabledTools(raw, allowedMcps) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  const allowSet = Array.isArray(allowedMcps) ? new Set(allowedMcps) : null;
+  for (const [k, v] of Object.entries(raw)) {
+    const key = String(k || '').trim();
+    if (!key || key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+    if (allowSet) {
+      const m = MCP_TOOL_RE.exec(key);
+      if (m && !allowSet.has(m[1])) continue;
+    }
+    if (typeof v === 'boolean') out[key] = v;
+  }
+  return out;
+}
+
+function normalizeBundle(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const mcps = Array.isArray(raw.mcps) ? [...new Set(raw.mcps.map(String).filter(Boolean))] : [];
+  const skills = Array.isArray(raw.skills) ? [...new Set(raw.skills.map(String).filter(Boolean))] : [];
+  const skillModes = sanitizeBundleSkillModes(raw.skillModes, skills);
+  const disabledMcps = sanitizeBundleDisabledMcps(raw.disabledMcps, mcps);
+  const disabledTools = sanitizeBundleDisabledTools(raw.disabledTools, mcps);
+  return {
+    ...raw,
+    mcps,
+    skills,
+    ...(Object.keys(skillModes).length ? { skillModes } : {}),
+    ...(Object.keys(disabledMcps).length ? { disabledMcps } : {}),
+    ...(Object.keys(disabledTools).length ? { disabledTools } : {}),
+  };
+}
+
 function loadState(filePath) {
   try {
     if (!existsSync(filePath)) return emptyState();
@@ -60,7 +121,7 @@ function loadState(filePath) {
     return {
       version: 1,
       seeded: raw.seeded === true,
-      bundles: Array.isArray(raw.bundles) ? raw.bundles : [],
+      bundles: Array.isArray(raw.bundles) ? raw.bundles.map(normalizeBundle).filter(Boolean) : [],
       skillModes: raw.skillModes && typeof raw.skillModes === 'object' ? { ...raw.skillModes } : {},
       disabledServers: raw.disabledServers && typeof raw.disabledServers === 'object' ? { ...raw.disabledServers } : {},
       disabledTools: raw.disabledTools && typeof raw.disabledTools === 'object' ? { ...raw.disabledTools } : {},
@@ -130,6 +191,44 @@ export function resolveEffectiveBundles(state, sessionId, resolveParentSessionId
   };
 }
 
+const SKILL_MODE_RANK = { muted: 0, manual: 1, auto: 2 };
+
+export function resolveSkillBaselineMode(sk, globalSkillModes) {
+  const configured = globalSkillModes?.[sk.name] || 'default';
+  if (configured === 'auto' || configured === 'manual' || configured === 'muted') {
+    return { mode: configured, source: 'manual' };
+  }
+  const m = sk.invocation?.modelInvocable !== false;
+  const u = sk.invocation?.userInvocable !== false;
+  return { mode: m ? 'auto' : u ? 'manual' : 'muted', source: 'default' };
+}
+
+export function resolveBundleSkillMode(bundle, sk, globalSkillModes) {
+  const configured = bundle?.skillModes?.[sk.name] || 'default';
+  const baseline = resolveSkillBaselineMode(sk, globalSkillModes);
+  if (configured === 'auto' || configured === 'manual' || configured === 'muted') {
+    return {
+      configuredMode: configured,
+      effectiveMode: configured,
+      source: 'bundle-override',
+      globalDefaultMode: baseline.mode,
+    };
+  }
+  return {
+    configuredMode: 'default',
+    effectiveMode: baseline.mode,
+    source: baseline.source,
+    globalDefaultMode: baseline.mode,
+  };
+}
+
+export function isBundleToolEnabled(bundle, fullTool, globalDisabledTools) {
+  if (bundle?.disabledTools && Object.hasOwn(bundle.disabledTools, fullTool)) {
+    return bundle.disabledTools[fullTool] !== true;
+  }
+  return globalDisabledTools?.[fullTool] !== true;
+}
+
 /**
  * Pure policy evaluation shared by runtime enforcement, UI state, and tests.
  */
@@ -153,32 +252,42 @@ export function computeEffectivePolicy(state, allMcpToolsByServer, underlyingSki
     }
   }
 
-  const mutedByBundleServer = new Set();
-  for (const [srv, list] of serverBundles) {
-    if (list.length > 0 && list.every(b => b.enabled === false)) {
-      mutedByBundleServer.add(srv);
-    }
-  }
-
-  const mutedByBundleSkill = new Set();
-  for (const [sk, list] of skillBundles) {
-    if (list.length > 0 && list.every(b => b.enabled === false)) {
-      mutedByBundleSkill.add(sk);
-    }
-  }
-
   const deniedTools = new Set();
   const serverEffectiveEnabled = new Map();
   for (const [srv, toolNames] of Object.entries(allMcpToolsByServer)) {
     const manuallyOff = state.disabledServers?.[srv] === true;
-    const bundleOff = mutedByBundleServer.has(srv);
+    const list = serverBundles.get(srv) || [];
+    if (list.length === 0) {
+      const srvEnabled = !manuallyOff;
+      serverEffectiveEnabled.set(srv, {
+        enabled: srvEnabled,
+        reason: manuallyOff ? 'manual' : 'active',
+      });
+      for (const fullTool of toolNames) {
+        if (!srvEnabled || state.disabledTools?.[fullTool] === true) {
+          deniedTools.add(fullTool);
+        }
+      }
+      continue;
+    }
+
+    const activeBundles = list.filter(b => b.enabled !== false);
+    const servingBundles = activeBundles.filter(b => b.disabledMcps?.[srv] !== true);
+    const bundleOff = servingBundles.length === 0;
     const srvEnabled = !manuallyOff && !bundleOff;
+    const bundleReason = activeBundles.length > 0 && servingBundles.length === 0 ? 'bundle-override' : 'bundle';
     serverEffectiveEnabled.set(srv, {
       enabled: srvEnabled,
-      reason: manuallyOff ? 'manual' : bundleOff ? 'bundle' : 'active',
+      reason: manuallyOff ? 'manual' : bundleOff ? bundleReason : 'active',
     });
+
     for (const fullTool of toolNames) {
-      if (!srvEnabled || state.disabledTools?.[fullTool] === true) {
+      if (!srvEnabled) {
+        deniedTools.add(fullTool);
+        continue;
+      }
+      const allowedByAnyBundle = servingBundles.some(b => isBundleToolEnabled(b, fullTool, state.disabledTools));
+      if (!allowedByAnyBundle) {
         deniedTools.add(fullTool);
       }
     }
@@ -187,25 +296,36 @@ export function computeEffectivePolicy(state, allMcpToolsByServer, underlyingSki
   const skillOverrides = new Map();
   for (const sk of underlyingSkills) {
     const configured = state.skillModes?.[sk.name] || 'default';
-    const bundleOff = mutedByBundleSkill.has(sk.name);
+    const list = skillBundles.get(sk.name) || [];
     let effectiveMode;
     let reason = 'default';
-    if (configured === 'muted') {
-      effectiveMode = 'muted';
-      reason = 'manual';
-    } else if (configured === 'manual') {
-      effectiveMode = bundleOff ? 'muted' : 'manual';
-      reason = bundleOff ? 'bundle' : 'manual';
-    } else if (configured === 'auto') {
-      effectiveMode = bundleOff ? 'muted' : 'auto';
-      reason = bundleOff ? 'bundle' : 'manual';
-    } else if (bundleOff) {
-      effectiveMode = 'muted';
-      reason = 'bundle';
+
+    if (list.length === 0) {
+      const baseline = resolveSkillBaselineMode(sk, state.skillModes);
+      effectiveMode = baseline.mode;
+      reason = baseline.source;
     } else {
-      const m = sk.invocation?.modelInvocable !== false;
-      const u = sk.invocation?.userInvocable !== false;
-      effectiveMode = m ? 'auto' : u ? 'manual' : 'muted';
+      const activeBundles = list.filter(b => b.enabled !== false);
+      if (activeBundles.length === 0) {
+        effectiveMode = 'muted';
+        reason = configured === 'muted' ? 'manual' : 'bundle';
+      } else {
+        let best = null;
+        let allMutedByBundleOverride = true;
+        for (const b of activeBundles) {
+          const resolved = resolveBundleSkillMode(b, sk, state.skillModes);
+          if (resolved.configuredMode !== 'muted') allMutedByBundleOverride = false;
+          if (!best || SKILL_MODE_RANK[resolved.effectiveMode] > SKILL_MODE_RANK[best.effectiveMode]) {
+            best = resolved;
+          }
+        }
+        effectiveMode = best.effectiveMode;
+        if (effectiveMode === 'muted') {
+          reason = allMutedByBundleOverride ? 'bundle-override' : best.source;
+        } else {
+          reason = best.source;
+        }
+      }
     }
 
     const desiredInvocation =
@@ -224,7 +344,7 @@ export function computeEffectivePolicy(state, allMcpToolsByServer, underlyingSki
       reason,
       changed,
       invocation: desiredInvocation,
-      bundles: (skillBundles.get(sk.name) || []).map(b => ({ id: b.id, name: b.name, enabled: b.enabled })),
+      bundles: list.map(b => ({ id: b.id, name: b.name, enabled: b.enabled })),
     });
   }
 
@@ -859,7 +979,7 @@ export function apply(ctx) {
       totalToolCount += rawTools.length;
       if (eff.enabled) {
         for (const t of rawTools) {
-          if (state.disabledTools?.[t.name] !== true) activeToolCount += 1;
+          if (!policy.deniedTools.has(t.name)) activeToolCount += 1;
         }
       }
     }
@@ -914,7 +1034,7 @@ export function apply(ctx) {
       const rawTools = detailsByServer[srvName] || [];
       const tools = rawTools.map(t => ({
         ...t,
-        enabled: eff.enabled && state.disabledTools?.[t.name] !== true,
+        enabled: eff.enabled && !policy.deniedTools.has(t.name),
         individuallyDisabled: state.disabledTools?.[t.name] === true,
       }));
 
@@ -1006,29 +1126,68 @@ export function apply(ctx) {
 
     const mcpMap = new Map(mcps.map(m => [m.name, m]));
     const skillMap = new Map(skills.map(s => [s.name, s]));
+    const rawSkillMap = new Map(rawSkills.map(s => [s.name, s]));
 
     const bundles = state.bundles.map(b => {
-      const bMcps = (b.mcps || []).map(n => mcpMap.get(n) || {
-        name: n,
-        source: 'missing',
-        transport: 'streamable-http',
-        enabled: false,
-        connectionState: 'missing',
-        totalTools: 0,
-        activeTools: 0,
-        tools: [],
+      const bMcps = (b.mcps || []).map(n => {
+        const base = mcpMap.get(n) || {
+          name: n,
+          source: 'missing',
+          transport: 'streamable-http',
+          enabled: false,
+          connectionState: 'missing',
+          totalTools: 0,
+          activeTools: 0,
+          tools: [],
+        };
+        const globallyDisabled = state.disabledServers?.[n] === true;
+        const bundleEnabled = b.disabledMcps?.[n] !== true;
+        const bundleTools = (base.tools || []).map(t => {
+          const hasBundleOverride = Boolean(b.disabledTools && Object.hasOwn(b.disabledTools, t.name));
+          const toolEnabled = isBundleToolEnabled(b, t.name, state.disabledTools);
+          return {
+            ...t,
+            bundleEnabled: toolEnabled,
+            hasBundleOverride,
+          };
+        });
+        const bundleActiveTools = bundleEnabled && !globallyDisabled
+          ? bundleTools.filter(t => t.bundleEnabled).length
+          : 0;
+        return {
+          ...base,
+          bundleEnabled,
+          globallyDisabled,
+          bundleActiveTools,
+          tools: bundleTools,
+        };
       });
-      const bSkills = (b.skills || []).map(n => skillMap.get(n) || {
-        name: n,
-        description: '当前工作区未扫描到此技能',
-        source: 'missing',
-        scopeGroup: 'user',
-        effectiveMode: 'muted',
+      const bSkills = (b.skills || []).map(n => {
+        const base = skillMap.get(n) || {
+          name: n,
+          description: '当前工作区未扫描到此技能',
+          source: 'missing',
+          scopeGroup: 'user',
+          effectiveMode: 'muted',
+        };
+        const rawSk = rawSkillMap.get(n) || { name: n };
+        const resolved = resolveBundleSkillMode(b, rawSk, state.skillModes);
+        return {
+          ...base,
+          bundleConfiguredMode: resolved.configuredMode,
+          bundleEffectiveMode: base.source === 'missing' ? 'muted' : resolved.effectiveMode,
+          globalDefaultMode: resolved.globalDefaultMode,
+        };
       });
-      const hasIssue = b.enabled && bMcps.some(m => m.connectionState === 'failed' || m.connectionState === 'reconnecting');
+      const hasIssue = b.enabled && bMcps.some(
+        m => m.bundleEnabled !== false && (m.connectionState === 'failed' || m.connectionState === 'reconnecting'),
+      );
       return {
         ...b,
         defaultInject: b.defaultInject !== false,
+        skillModes: b.skillModes ? { ...b.skillModes } : {},
+        disabledMcps: b.disabledMcps ? { ...b.disabledMcps } : {},
+        disabledTools: b.disabledTools ? { ...b.disabledTools } : {},
         mcpDetails: bMcps,
         skillDetails: bSkills,
         hasIssue,
@@ -1125,6 +1284,24 @@ export function apply(ctx) {
         return buildStatus(payload.cwd, payload.sessionId);
       }
 
+      case 'set_bundle_state': {
+        const bundleId = String(payload.bundleId || '').trim();
+        const idx = state.bundles.findIndex(b => b.id === bundleId);
+        if (idx === -1) return { ok: false, error: `未找到套件 "${bundleId}"` };
+        const target = String(payload.state || '').trim();
+        if (target === 'default') {
+          state.bundles[idx] = { ...state.bundles[idx], enabled: true, defaultInject: true };
+        } else if (target === 'on_demand') {
+          state.bundles[idx] = { ...state.bundles[idx], enabled: true, defaultInject: false };
+        } else if (target === 'disabled') {
+          state.bundles[idx] = { ...state.bundles[idx], enabled: false };
+        } else {
+          return { ok: false, error: `不支持的套件状态: ${target}` };
+        }
+        persistAndReconcile();
+        return buildStatus(payload.cwd, payload.sessionId);
+      }
+
       case 'set_session_bundles': {
         const sessionId = String(payload.sessionId || '').trim();
         if (!sessionId) return { ok: false, error: 'sessionId 不能为空' };
@@ -1158,6 +1335,10 @@ export function apply(ctx) {
         const mcps = Array.isArray(payload.mcps) ? [...new Set(payload.mcps.map(String).filter(Boolean))] : [];
         const skills = Array.isArray(payload.skills) ? [...new Set(payload.skills.map(String).filter(Boolean))] : [];
         const existingIdx = state.bundles.findIndex(b => b.id === id);
+        const prev = existingIdx >= 0 ? state.bundles[existingIdx] : null;
+        const skillModes = sanitizeBundleSkillModes(payload.skillModes ?? prev?.skillModes, skills);
+        const disabledMcps = sanitizeBundleDisabledMcps(payload.disabledMcps ?? prev?.disabledMcps, mcps);
+        const disabledTools = sanitizeBundleDisabledTools(payload.disabledTools ?? prev?.disabledTools, mcps);
         const record = {
           id,
           name: title,
@@ -1165,12 +1346,15 @@ export function apply(ctx) {
           description: String(payload.description || '').trim() || '自定义 MCP 与 Skills 组合套件',
           icon: String(payload.icon || 'layers'),
           color: String(payload.color || '#2563eb'),
-          enabled: typeof payload.enabled === 'boolean' ? payload.enabled : (existingIdx >= 0 ? state.bundles[existingIdx].enabled : true),
+          enabled: typeof payload.enabled === 'boolean' ? payload.enabled : (prev ? prev.enabled : true),
           defaultInject: typeof payload.defaultInject === 'boolean'
             ? payload.defaultInject
-            : (existingIdx >= 0 ? state.bundles[existingIdx].defaultInject !== false : true),
+            : (prev ? prev.defaultInject !== false : true),
           mcps,
           skills,
+          ...(Object.keys(skillModes).length ? { skillModes } : {}),
+          ...(Object.keys(disabledMcps).length ? { disabledMcps } : {}),
+          ...(Object.keys(disabledTools).length ? { disabledTools } : {}),
         };
         if (existingIdx >= 0) {
           state.bundles[existingIdx] = record;
@@ -1178,7 +1362,133 @@ export function apply(ctx) {
           state.bundles.unshift(record);
         }
         persistAndReconcile();
-        return { ...(await buildStatus(payload.cwd)), savedBundleId: id };
+        return { ...(await buildStatus(payload.cwd, payload.sessionId)), savedBundleId: id };
+      }
+
+      case 'set_bundle_skill_mode': {
+        const bundleId = String(payload.bundleId || '').trim();
+        const skillName = String(payload.skillName || '').trim();
+        const mode = String(payload.mode || 'default');
+        const idx = state.bundles.findIndex(b => b.id === bundleId);
+        if (idx === -1) return { ok: false, error: `未找到套件 "${bundleId}"` };
+        if (!skillName) return { ok: false, error: '技能名称不能为空' };
+        if (!['default', 'auto', 'manual', 'muted'].includes(mode)) {
+          return { ok: false, error: `不支持的技能模式: ${mode}` };
+        }
+        const b = state.bundles[idx];
+        if (!Array.isArray(b.skills) || !b.skills.includes(skillName)) {
+          return { ok: false, error: `套件 "${b.name}" 中未包含技能 "${skillName}"` };
+        }
+        const nextModes = { ...(b.skillModes || {}) };
+        if (mode === 'default') delete nextModes[skillName];
+        else nextModes[skillName] = mode;
+        const updated = { ...b };
+        if (Object.keys(nextModes).length > 0) updated.skillModes = nextModes;
+        else delete updated.skillModes;
+        state.bundles[idx] = updated;
+        persistAndReconcile();
+        return buildStatus(payload.cwd, payload.sessionId);
+      }
+
+      case 'batch_bundle_skills': {
+        const bundleId = String(payload.bundleId || '').trim();
+        const mode = String(payload.mode || 'default');
+        const idx = state.bundles.findIndex(b => b.id === bundleId);
+        if (idx === -1) return { ok: false, error: `未找到套件 "${bundleId}"` };
+        if (!['default', 'auto', 'manual', 'muted'].includes(mode)) {
+          return { ok: false, error: `不支持的技能模式: ${mode}` };
+        }
+        const b = state.bundles[idx];
+        const updated = { ...b };
+        if (mode === 'default') {
+          delete updated.skillModes;
+        } else {
+          const nextModes = {};
+          for (const sk of b.skills || []) nextModes[sk] = mode;
+          if (Object.keys(nextModes).length > 0) updated.skillModes = nextModes;
+          else delete updated.skillModes;
+        }
+        state.bundles[idx] = updated;
+        persistAndReconcile();
+        return buildStatus(payload.cwd, payload.sessionId);
+      }
+
+      case 'toggle_bundle_mcp': {
+        const bundleId = String(payload.bundleId || '').trim();
+        const serverName = String(payload.serverName || '').trim();
+        const idx = state.bundles.findIndex(b => b.id === bundleId);
+        if (idx === -1) return { ok: false, error: `未找到套件 "${bundleId}"` };
+        if (!serverName) return { ok: false, error: 'MCP 服务名不能为空' };
+        const b = state.bundles[idx];
+        if (!Array.isArray(b.mcps) || !b.mcps.includes(serverName)) {
+          return { ok: false, error: `套件 "${b.name}" 中未包含 MCP "${serverName}"` };
+        }
+        const enabled = Boolean(payload.enabled);
+        const nextDisabled = { ...(b.disabledMcps || {}) };
+        if (enabled) delete nextDisabled[serverName];
+        else nextDisabled[serverName] = true;
+        const updated = { ...b };
+        if (Object.keys(nextDisabled).length > 0) updated.disabledMcps = nextDisabled;
+        else delete updated.disabledMcps;
+        state.bundles[idx] = updated;
+        persistAndReconcile();
+        return buildStatus(payload.cwd, payload.sessionId);
+      }
+
+      case 'toggle_bundle_mcp_tool': {
+        const bundleId = String(payload.bundleId || '').trim();
+        const toolName = String(payload.toolName || '').trim();
+        const idx = state.bundles.findIndex(b => b.id === bundleId);
+        if (idx === -1) return { ok: false, error: `未找到套件 "${bundleId}"` };
+        if (!toolName) return { ok: false, error: '工具名不能为空' };
+        const b = state.bundles[idx];
+        const m = MCP_TOOL_RE.exec(toolName);
+        if (m && (!Array.isArray(b.mcps) || !b.mcps.includes(m[1]))) {
+          return { ok: false, error: `套件 "${b.name}" 中未包含 MCP "${m[1]}"` };
+        }
+        const enabled = Boolean(payload.enabled);
+        const nextTools = { ...(b.disabledTools || {}) };
+        if (enabled) {
+          if (state.disabledTools?.[toolName] === true) nextTools[toolName] = false;
+          else delete nextTools[toolName];
+        } else {
+          nextTools[toolName] = true;
+        }
+        const updated = { ...b };
+        if (Object.keys(nextTools).length > 0) updated.disabledTools = nextTools;
+        else delete updated.disabledTools;
+        state.bundles[idx] = updated;
+        persistAndReconcile();
+        return buildStatus(payload.cwd, payload.sessionId);
+      }
+
+      case 'batch_bundle_mcp_tools': {
+        const bundleId = String(payload.bundleId || '').trim();
+        const serverName = String(payload.serverName || '').trim();
+        const idx = state.bundles.findIndex(b => b.id === bundleId);
+        if (idx === -1) return { ok: false, error: `未找到套件 "${bundleId}"` };
+        if (!serverName) return { ok: false, error: 'MCP 服务名不能为空' };
+        const b = state.bundles[idx];
+        if (!Array.isArray(b.mcps) || !b.mcps.includes(serverName)) {
+          return { ok: false, error: `套件 "${b.name}" 中未包含 MCP "${serverName}"` };
+        }
+        const enabled = Boolean(payload.enabled);
+        const { byServer } = collectMcpToolsMap();
+        const nextTools = { ...(b.disabledTools || {}) };
+        for (const t of byServer[serverName] || []) {
+          if (enabled) {
+            if (state.disabledTools?.[t] === true) nextTools[t] = false;
+            else delete nextTools[t];
+          } else {
+            nextTools[t] = true;
+          }
+        }
+        const updated = { ...b };
+        if (Object.keys(nextTools).length > 0) updated.disabledTools = nextTools;
+        else delete updated.disabledTools;
+        state.bundles[idx] = updated;
+        persistAndReconcile();
+        return buildStatus(payload.cwd, payload.sessionId);
       }
 
       case 'delete_bundle': {
@@ -1417,6 +1727,10 @@ export function apply(ctx) {
           if (Array.isArray(b.skills) && b.skills.includes(skillName)) {
             b.skills = b.skills.filter(s => s !== skillName);
           }
+          if (b.skillModes && Object.hasOwn(b.skillModes, skillName)) {
+            delete b.skillModes[skillName];
+            if (Object.keys(b.skillModes).length === 0) delete b.skillModes;
+          }
         }
         persistAndReconcile();
         return { ...(await buildStatus(cwd, payload.sessionId)), deletedSkillName: skillName, deleteMode: mode };
@@ -1433,20 +1747,26 @@ export function apply(ctx) {
           state.disabledServers[serverName] = true;
         }
         persistAndReconcile();
-        return buildStatus(payload.cwd);
+        return buildStatus(payload.cwd, payload.sessionId);
       }
 
       case 'toggle_mcp_tool': {
+        if (payload.bundleId) {
+          return executeAction('toggle_bundle_mcp_tool', payload);
+        }
         const toolName = String(payload.toolName || '').trim();
         if (!toolName) return { ok: false, error: '工具名不能为空' };
         const enabled = Boolean(payload.enabled);
         if (enabled) delete state.disabledTools[toolName];
         else state.disabledTools[toolName] = true;
         persistAndReconcile();
-        return buildStatus(payload.cwd);
+        return buildStatus(payload.cwd, payload.sessionId);
       }
 
       case 'batch_mcp_tools': {
+        if (payload.bundleId) {
+          return executeAction('batch_bundle_mcp_tools', payload);
+        }
         const serverName = String(payload.serverName || '').trim();
         const enabled = Boolean(payload.enabled);
         const { byServer } = collectMcpToolsMap();
@@ -1455,7 +1775,7 @@ export function apply(ctx) {
           else state.disabledTools[t] = true;
         }
         persistAndReconcile();
-        return buildStatus(payload.cwd);
+        return buildStatus(payload.cwd, payload.sessionId);
       }
 
       case 'save_custom_mcp': {
@@ -1532,8 +1852,24 @@ export function apply(ctx) {
         }
         delete state.customServers[serverName];
         delete state.disabledServers[serverName];
+        for (const b of state.bundles) {
+          if (Array.isArray(b.mcps) && b.mcps.includes(serverName)) {
+            b.mcps = b.mcps.filter(m => m !== serverName);
+          }
+          if (b.disabledMcps && Object.hasOwn(b.disabledMcps, serverName)) {
+            delete b.disabledMcps[serverName];
+            if (Object.keys(b.disabledMcps).length === 0) delete b.disabledMcps;
+          }
+          if (b.disabledTools) {
+            for (const key of Object.keys(b.disabledTools)) {
+              const m = MCP_TOOL_RE.exec(key);
+              if (m && m[1] === serverName) delete b.disabledTools[key];
+            }
+            if (Object.keys(b.disabledTools).length === 0) delete b.disabledTools;
+          }
+        }
         persistAndReconcile();
-        return buildStatus(payload.cwd);
+        return buildStatus(payload.cwd, payload.sessionId);
       }
 
       case 'restart_mcp': {
@@ -1566,8 +1902,11 @@ export function apply(ctx) {
             const hasBundleOff = state.bundles.some(
               b => (b.enabled === false || b.defaultInject === false) && Array.isArray(b.skills) && b.skills.length > 0,
             );
+            const hasBundleSkillModes = state.bundles.some(
+              b => b.skillModes && Object.keys(b.skillModes).length > 0,
+            );
             const hasManualSkillModes = Object.keys(state.skillModes || {}).length > 0;
-            if (!hasBundleOff && !hasManualSkillModes) return [];
+            if (!hasBundleOff && !hasBundleSkillModes && !hasManualSkillModes) return [];
 
             const underlying = await bypassSkillPolicy.run(true, () => skillCtx.skills.list({ ...options, scope: {} }));
             const policy = computeEffectivePolicy(state, {}, underlying);
@@ -1631,6 +1970,11 @@ export function apply(ctx) {
                 'set_session_bundles',
                 'save_bundle',
                 'delete_bundle',
+                'set_bundle_skill_mode',
+                'batch_bundle_skills',
+                'toggle_bundle_mcp',
+                'toggle_bundle_mcp_tool',
+                'batch_bundle_mcp_tools',
                 'set_skill_mode',
                 'save_skill',
                 'import_skill',

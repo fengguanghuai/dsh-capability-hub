@@ -215,4 +215,89 @@ const stdioSnippet = JSON.parse(formatMcpJsonSnippet({
 assert.equal(stdioSnippet.mcpServers.gh_local.env.GITHUB_TOKEN, '${credential:GITHUB_TOKEN}');
 assert.equal(stdioSnippet.mcpServers.gh_local.expandTemplates, true);
 
+// 8. Validate Option B: per-bundle independent skill modes, MCP pause, and MCP tool subsets
+const sharedToolsByServer = {
+  ftd_mcp: ['mcp__ftd_mcp__query', 'mcp__ftd_mcp__logs', 'mcp__ftd_mcp__deploy'],
+};
+const sharedSkills = [
+  { name: 'skill-ops', invocation: { modelInvocable: true, userInvocable: true } },
+  { name: 'skill-audit', invocation: { modelInvocable: true, userInvocable: true } },
+];
+const statePerBundle = {
+  bundles: [
+    {
+      id: 'b-readonly',
+      name: 'Readonly',
+      enabled: true,
+      defaultInject: false,
+      mcps: ['ftd_mcp'],
+      skills: ['skill-ops', 'skill-audit'],
+      skillModes: { 'skill-ops': 'manual', 'skill-audit': 'auto' },
+      disabledTools: { mcp__ftd_mcp__deploy: true, mcp__ftd_mcp__logs: false },
+    },
+    {
+      id: 'b-deploy',
+      name: 'Deploy',
+      enabled: true,
+      defaultInject: false,
+      mcps: ['ftd_mcp'],
+      skills: ['skill-ops'],
+      skillModes: { 'skill-ops': 'auto' },
+      disabledTools: { mcp__ftd_mcp__query: true, mcp__ftd_mcp__logs: true },
+    },
+    {
+      id: 'b-paused-mcp',
+      name: 'PausedMCP',
+      enabled: true,
+      defaultInject: false,
+      mcps: ['ftd_mcp'],
+      skills: ['skill-ops'],
+      skillModes: { 'skill-ops': 'muted' },
+      disabledMcps: { ftd_mcp: true },
+    },
+  ],
+  skillModes: { 'skill-audit': 'muted' }, // global mute, overridden to auto in b-readonly
+  disabledServers: {},
+  disabledTools: { mcp__ftd_mcp__logs: true }, // global disable, overridden to false (enabled) in b-readonly
+  sessionOverrides: {
+    'sess-ro': ['b-readonly'],
+    'sess-dep': ['b-deploy'],
+    'sess-both': ['b-readonly', 'b-deploy'],
+    'sess-paused': ['b-paused-mcp'],
+  },
+};
+
+// Session with only Readonly suite: query & logs allowed (logs overrides global disable), deploy denied; skill-ops=manual, skill-audit=auto (overrides global mute)
+const roPolicy = computeEffectivePolicy(statePerBundle, sharedToolsByServer, sharedSkills, { sessionId: 'sess-ro' });
+assert.equal(roPolicy.serverEffectiveEnabled.get('ftd_mcp').enabled, true);
+assert.equal(roPolicy.deniedTools.has('mcp__ftd_mcp__query'), false);
+assert.equal(roPolicy.deniedTools.has('mcp__ftd_mcp__logs'), false);
+assert.equal(roPolicy.deniedTools.has('mcp__ftd_mcp__deploy'), true);
+assert.equal(roPolicy.skillOverrides.get('skill-ops').effectiveMode, 'manual');
+assert.equal(roPolicy.skillOverrides.get('skill-audit').effectiveMode, 'auto');
+
+// Session with only Deploy suite: deploy allowed, query & logs denied; skill-ops=auto, skill-audit=muted (not in b-deploy)
+const depPolicy = computeEffectivePolicy(statePerBundle, sharedToolsByServer, sharedSkills, { sessionId: 'sess-dep' });
+assert.equal(depPolicy.deniedTools.has('mcp__ftd_mcp__query'), true);
+assert.equal(depPolicy.deniedTools.has('mcp__ftd_mcp__logs'), true);
+assert.equal(depPolicy.deniedTools.has('mcp__ftd_mcp__deploy'), false);
+assert.equal(depPolicy.skillOverrides.get('skill-ops').effectiveMode, 'auto');
+assert.equal(depPolicy.skillOverrides.get('skill-audit').effectiveMode, 'muted');
+
+// Session with BOTH Readonly + Deploy: union of allowed tools (all 3 allowed), highest skill mode wins (auto > manual)
+const bothPolicy = computeEffectivePolicy(statePerBundle, sharedToolsByServer, sharedSkills, { sessionId: 'sess-both' });
+assert.equal(bothPolicy.deniedTools.has('mcp__ftd_mcp__query'), false);
+assert.equal(bothPolicy.deniedTools.has('mcp__ftd_mcp__logs'), false);
+assert.equal(bothPolicy.deniedTools.has('mcp__ftd_mcp__deploy'), false);
+assert.equal(bothPolicy.skillOverrides.get('skill-ops').effectiveMode, 'auto');
+assert.equal(bothPolicy.skillOverrides.get('skill-audit').effectiveMode, 'auto');
+
+// Session with PausedMCP suite: MCP disabled inside suite -> server disabled with bundle-override reason; skill-ops muted with bundle-override
+const pausedPolicy = computeEffectivePolicy(statePerBundle, sharedToolsByServer, sharedSkills, { sessionId: 'sess-paused' });
+assert.equal(pausedPolicy.serverEffectiveEnabled.get('ftd_mcp').enabled, false);
+assert.equal(pausedPolicy.serverEffectiveEnabled.get('ftd_mcp').reason, 'bundle-override');
+assert.equal(pausedPolicy.deniedTools.has('mcp__ftd_mcp__query'), true);
+assert.equal(pausedPolicy.skillOverrides.get('skill-ops').effectiveMode, 'muted');
+assert.equal(pausedPolicy.skillOverrides.get('skill-ops').reason, 'bundle-override');
+
 console.log('ALL_CHECKS_PASSED');
