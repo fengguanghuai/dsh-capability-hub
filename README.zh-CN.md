@@ -12,9 +12,9 @@
 
 ## 界面预览
 
-| 套件与上下文预算总览 | Skill 抽屉与会话级套件选择 |
-| --- | --- |
-| ![套件总览](https://raw.githubusercontent.com/fengguanghuai/dsh-capability-hub/main/assets/preview-suites.png) | ![Skill 与会话级注入](https://raw.githubusercontent.com/fengguanghuai/dsh-capability-hub/main/assets/preview-skills.png) |
+| 套件与上下文预算总览 | 套件内独立 MCP 工具与 Skill 控制 | Skills 与会话级套件注入 |
+| --- | --- | --- |
+| ![套件总览](https://raw.githubusercontent.com/fengguanghuai/dsh-capability-hub/main/assets/preview-suites.png) | ![套件内独立工具开关](https://raw.githubusercontent.com/fengguanghuai/dsh-capability-hub/main/assets/preview-suite-detail.png) | ![Skill 与会话级注入](https://raw.githubusercontent.com/fengguanghuai/dsh-capability-hub/main/assets/preview-skills.png) |
 
 ## 核心特性
 

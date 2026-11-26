@@ -12,9 +12,9 @@ A unified capability hub for **DeepSeek Harness (DSH)** that lets you organize *
 
 ## Preview
 
-| Suites & Budget Overview | Skills Drawer & Per-Session Composer |
-| --- | --- |
-| ![Suites Overview](https://raw.githubusercontent.com/fengguanghuai/dsh-capability-hub/main/assets/preview-suites.png) | ![Skills & Per-Session Composer](https://raw.githubusercontent.com/fengguanghuai/dsh-capability-hub/main/assets/preview-skills.png) |
+| Suites & Budget Overview | Per-Suite MCP & Skill Controls | Skills & Per-Session Composer |
+| --- | --- | --- |
+| ![Suites Overview](https://raw.githubusercontent.com/fengguanghuai/dsh-capability-hub/main/assets/preview-suites.png) | ![Suite Detail](https://raw.githubusercontent.com/fengguanghuai/dsh-capability-hub/main/assets/preview-suite-detail.png) | ![Skills & Per-Session Composer](https://raw.githubusercontent.com/fengguanghuai/dsh-capability-hub/main/assets/preview-skills.png) |
 
 ## Key Features
 
