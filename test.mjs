@@ -217,7 +217,7 @@ assert.equal(stdioSnippet.mcpServers.gh_local.expandTemplates, true);
 
 // 8. Validate Option B: per-bundle independent skill modes, MCP pause, and MCP tool subsets
 const sharedToolsByServer = {
-  ftd_mcp: ['mcp__ftd_mcp__query', 'mcp__ftd_mcp__logs', 'mcp__ftd_mcp__deploy'],
+  ops_mcp: ['mcp__ops_mcp__query', 'mcp__ops_mcp__logs', 'mcp__ops_mcp__deploy'],
 };
 const sharedSkills = [
   { name: 'skill-ops', invocation: { modelInvocable: true, userInvocable: true } },
@@ -230,35 +230,35 @@ const statePerBundle = {
       name: 'Readonly',
       enabled: true,
       defaultInject: false,
-      mcps: ['ftd_mcp'],
+      mcps: ['ops_mcp'],
       skills: ['skill-ops', 'skill-audit'],
       skillModes: { 'skill-ops': 'manual', 'skill-audit': 'auto' },
-      disabledTools: { mcp__ftd_mcp__deploy: true, mcp__ftd_mcp__logs: false },
+      disabledTools: { mcp__ops_mcp__deploy: true, mcp__ops_mcp__logs: false },
     },
     {
       id: 'b-deploy',
       name: 'Deploy',
       enabled: true,
       defaultInject: false,
-      mcps: ['ftd_mcp'],
+      mcps: ['ops_mcp'],
       skills: ['skill-ops'],
       skillModes: { 'skill-ops': 'auto' },
-      disabledTools: { mcp__ftd_mcp__query: true, mcp__ftd_mcp__logs: true },
+      disabledTools: { mcp__ops_mcp__query: true, mcp__ops_mcp__logs: true },
     },
     {
       id: 'b-paused-mcp',
       name: 'PausedMCP',
       enabled: true,
       defaultInject: false,
-      mcps: ['ftd_mcp'],
+      mcps: ['ops_mcp'],
       skills: ['skill-ops'],
       skillModes: { 'skill-ops': 'muted' },
-      disabledMcps: { ftd_mcp: true },
+      disabledMcps: { ops_mcp: true },
     },
   ],
   skillModes: { 'skill-audit': 'muted' }, // global mute, overridden to auto in b-readonly
   disabledServers: {},
-  disabledTools: { mcp__ftd_mcp__logs: true }, // global disable, overridden to false (enabled) in b-readonly
+  disabledTools: { mcp__ops_mcp__logs: true }, // global disable, overridden to false (enabled) in b-readonly
   sessionOverrides: {
     'sess-ro': ['b-readonly'],
     'sess-dep': ['b-deploy'],
@@ -269,35 +269,137 @@ const statePerBundle = {
 
 // Session with only Readonly suite: query & logs allowed (logs overrides global disable), deploy denied; skill-ops=manual, skill-audit=auto (overrides global mute)
 const roPolicy = computeEffectivePolicy(statePerBundle, sharedToolsByServer, sharedSkills, { sessionId: 'sess-ro' });
-assert.equal(roPolicy.serverEffectiveEnabled.get('ftd_mcp').enabled, true);
-assert.equal(roPolicy.deniedTools.has('mcp__ftd_mcp__query'), false);
-assert.equal(roPolicy.deniedTools.has('mcp__ftd_mcp__logs'), false);
-assert.equal(roPolicy.deniedTools.has('mcp__ftd_mcp__deploy'), true);
+assert.equal(roPolicy.serverEffectiveEnabled.get('ops_mcp').enabled, true);
+assert.equal(roPolicy.deniedTools.has('mcp__ops_mcp__query'), false);
+assert.equal(roPolicy.deniedTools.has('mcp__ops_mcp__logs'), false);
+assert.equal(roPolicy.deniedTools.has('mcp__ops_mcp__deploy'), true);
 assert.equal(roPolicy.skillOverrides.get('skill-ops').effectiveMode, 'manual');
 assert.equal(roPolicy.skillOverrides.get('skill-audit').effectiveMode, 'auto');
 
 // Session with only Deploy suite: deploy allowed, query & logs denied; skill-ops=auto, skill-audit=muted (not in b-deploy)
 const depPolicy = computeEffectivePolicy(statePerBundle, sharedToolsByServer, sharedSkills, { sessionId: 'sess-dep' });
-assert.equal(depPolicy.deniedTools.has('mcp__ftd_mcp__query'), true);
-assert.equal(depPolicy.deniedTools.has('mcp__ftd_mcp__logs'), true);
-assert.equal(depPolicy.deniedTools.has('mcp__ftd_mcp__deploy'), false);
+assert.equal(depPolicy.deniedTools.has('mcp__ops_mcp__query'), true);
+assert.equal(depPolicy.deniedTools.has('mcp__ops_mcp__logs'), true);
+assert.equal(depPolicy.deniedTools.has('mcp__ops_mcp__deploy'), false);
 assert.equal(depPolicy.skillOverrides.get('skill-ops').effectiveMode, 'auto');
 assert.equal(depPolicy.skillOverrides.get('skill-audit').effectiveMode, 'muted');
 
 // Session with BOTH Readonly + Deploy: union of allowed tools (all 3 allowed), highest skill mode wins (auto > manual)
 const bothPolicy = computeEffectivePolicy(statePerBundle, sharedToolsByServer, sharedSkills, { sessionId: 'sess-both' });
-assert.equal(bothPolicy.deniedTools.has('mcp__ftd_mcp__query'), false);
-assert.equal(bothPolicy.deniedTools.has('mcp__ftd_mcp__logs'), false);
-assert.equal(bothPolicy.deniedTools.has('mcp__ftd_mcp__deploy'), false);
+assert.equal(bothPolicy.deniedTools.has('mcp__ops_mcp__query'), false);
+assert.equal(bothPolicy.deniedTools.has('mcp__ops_mcp__logs'), false);
+assert.equal(bothPolicy.deniedTools.has('mcp__ops_mcp__deploy'), false);
 assert.equal(bothPolicy.skillOverrides.get('skill-ops').effectiveMode, 'auto');
 assert.equal(bothPolicy.skillOverrides.get('skill-audit').effectiveMode, 'auto');
 
 // Session with PausedMCP suite: MCP disabled inside suite -> server disabled with bundle-override reason; skill-ops muted with bundle-override
 const pausedPolicy = computeEffectivePolicy(statePerBundle, sharedToolsByServer, sharedSkills, { sessionId: 'sess-paused' });
-assert.equal(pausedPolicy.serverEffectiveEnabled.get('ftd_mcp').enabled, false);
-assert.equal(pausedPolicy.serverEffectiveEnabled.get('ftd_mcp').reason, 'bundle-override');
-assert.equal(pausedPolicy.deniedTools.has('mcp__ftd_mcp__query'), true);
+assert.equal(pausedPolicy.serverEffectiveEnabled.get('ops_mcp').enabled, false);
+assert.equal(pausedPolicy.serverEffectiveEnabled.get('ops_mcp').reason, 'bundle-override');
+assert.equal(pausedPolicy.deniedTools.has('mcp__ops_mcp__query'), true);
 assert.equal(pausedPolicy.skillOverrides.get('skill-ops').effectiveMode, 'muted');
 assert.equal(pausedPolicy.skillOverrides.get('skill-ops').reason, 'bundle-override');
+
+// Regression: Cordis ctx.inject() returns a Fork object ({ dispose }), not a bare function.
+// Enabling a previously denied suite mid-session must dispose the old tools.restrict() Fork.
+{
+  const { apply } = await import('./index.js');
+  const os = await import('node:os');
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cap-hub-test-'));
+  const prevDshHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = tmpHome;
+  try {
+    fs.mkdirSync(path.join(tmpHome, 'capability-hub'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpHome, 'capability-hub', 'state.json'),
+      JSON.stringify({
+        version: 1,
+        seeded: true,
+        bundles: [
+          { id: 'suite-a', name: 'Suite A', enabled: true, defaultInject: false, mcps: ['demo_mcp'], skills: [] },
+        ],
+        skillModes: {},
+        disabledServers: {},
+        disabledTools: {},
+        customServers: {},
+        sessionOverrides: {},
+      }),
+      'utf8',
+    );
+
+    const activeDenies = new Set();
+    let registeredTool = null;
+    const mockAgent = {
+      id: 'session-hotplug-1',
+      ctx: {
+        inject(deps, cb) {
+          let cleanup = null;
+          if (deps.includes('tools')) {
+            cb({
+              effect(fn) {
+                cleanup = fn();
+              },
+              tools: {
+                restrict({ deny }) {
+                  const key = JSON.stringify(deny);
+                  activeDenies.add(key);
+                  return () => activeDenies.delete(key);
+                },
+              },
+            });
+          }
+          // Return a Cordis-style Fork object (NOT a function)
+          return {
+            dispose() {
+              if (typeof cleanup === 'function') cleanup();
+            },
+          };
+        },
+      },
+    };
+    const toolsSvc = {
+      definitions: () => [{ name: 'mcp__demo_mcp__queryRecords', description: 'query' }],
+      register: (def) => {
+        registeredTool = def;
+        return () => {};
+      },
+    };
+    const agentsSvc = { list: () => [mockAgent] };
+    const ctx = {
+      effect() {},
+      get(k) {
+        if (k === 'tools') return toolsSvc;
+        if (k === 'agents') return agentsSvc;
+        return undefined;
+      },
+      inject(deps, cb) {
+        if (deps.includes('tools') && deps.includes('agents')) {
+          cb({
+            on() {},
+            effect(fn) { fn(); },
+            get: ctx.get,
+            tools: toolsSvc,
+          });
+        }
+      },
+    };
+
+    apply(ctx);
+    assert.equal(activeDenies.size, 1, 'initial on-demand suite should deny MCP tool');
+    assert.ok(registeredTool, 'capability_hub tool should be registered');
+
+    await registeredTool.execute(
+      { action: 'set_session_bundles', sessionId: 'session-hotplug-1', bundleIds: ['suite-a'] },
+      { agent: mockAgent },
+    );
+    assert.equal(activeDenies.size, 0, 'enabling suite mid-session must dispose old Fork restriction');
+  } finally {
+    if (prevDshHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = prevDshHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+}
 
 console.log('ALL_CHECKS_PASSED');

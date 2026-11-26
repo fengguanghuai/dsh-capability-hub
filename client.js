@@ -60,7 +60,9 @@ window.__ModuleLoader__.load({
       'status.mutedByBundle': '随套件静默',
       'status.connected': '已连接',
       'status.connecting': '连接中',
+      'status.reconnecting': '重连中',
       'status.failed': '连接异常',
+      'btn.restarting': '连接中…',
       'mode.default': '跟随默认',
       'mode.auto': '自动触发',
       'mode.manual': '仅手动 /skill',
@@ -137,7 +139,9 @@ window.__ModuleLoader__.load({
       'status.mutedByBundle': 'Muted by suite',
       'status.connected': 'Connected',
       'status.connecting': 'Connecting',
+      'status.reconnecting': 'Reconnecting',
       'status.failed': 'Issue',
+      'btn.restarting': 'Connecting…',
       'mode.default': 'Default',
       'mode.auto': 'Auto',
       'mode.manual': 'Manual /skill',
@@ -656,6 +660,19 @@ window.__ModuleLoader__.load({
       .ch-pill.info {
         background: var(--dsw-alias-state-business-tertiary, rgba(37,99,235,0.12));
         color: var(--dsw-alias-state-business-primary, #2563eb);
+      }
+      @keyframes ch-spin {
+        to { transform: rotate(360deg); }
+      }
+      .ch-spinner {
+        display: inline-block;
+        width: 11px;
+        height: 11px;
+        border: 1.8px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: ch-spin 0.75s linear infinite;
+        flex-shrink: 0;
       }
       .ch-switch {
         position: relative;
@@ -1373,6 +1390,8 @@ window.__ModuleLoader__.load({
       const [skillDoc, setSkillDoc] = useState({ loading: false, content: '', path: '', error: '' });
       const [drawerToolQuery, setDrawerToolQuery] = useState('');
       const [copiedKey, setCopiedKey] = useState('');
+      const [restartingServers, setRestartingServers] = useState({});
+      const prevConnectingRef = useRef(false);
 
       // Bundle form state
       const [bfId, setBfId] = useState('');
@@ -1435,6 +1454,23 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         refresh(cwd || undefined);
       }, [cwd, refresh]);
+
+      const hasConnectingMcp = useMemo(
+        () => (data?.mcps || []).some((m) => m.connectionState === 'connecting' || m.connectionState === 'reconnecting'),
+        [data],
+      );
+
+      useEffect(() => {
+        if (prevConnectingRef.current && !hasConnectingMcp) {
+          notifyHubChange();
+        }
+        prevConnectingRef.current = hasConnectingMcp;
+        if (!hasConnectingMcp) return undefined;
+        const timer = setInterval(() => {
+          refresh(cwd || undefined);
+        }, 1500);
+        return () => clearInterval(timer);
+      }, [hasConnectingMcp, cwd, refresh]);
 
       useEffect(() => {
         if (!drawer && !modal && !suiteMenu) return undefined;
@@ -1586,6 +1622,51 @@ window.__ModuleLoader__.load({
           return null;
         }
       }, [cwd]);
+
+      const handleRestartMcp = useCallback(async (serverName) => {
+        if (!serverName) return;
+        setRestartingServers((prev) => ({ ...prev, [serverName]: true }));
+        try {
+          await runMutation({ action: 'restart_mcp', serverName });
+        } finally {
+          setRestartingServers((prev) => {
+            const next = { ...prev };
+            delete next[serverName];
+            return next;
+          });
+        }
+      }, [runMutation]);
+
+      const isMcpBusy = (m) =>
+        Boolean(restartingServers[m?.name]) ||
+        m?.connectionState === 'connecting' ||
+        m?.connectionState === 'reconnecting';
+
+      const renderMcpConnPill = (m) => {
+        if (!m) return null;
+        if (m.globallyDisabled || m.disableReason === 'manual' || m.connectionState === 'disabled') {
+          return h('span', { className: 'ch-pill' }, t('status.muted'));
+        }
+        if (restartingServers[m.name] || m.connectionState === 'connecting' || m.connectionState === 'reconnecting') {
+          const isReconnect = m.connectionState === 'reconnecting';
+          const progress = isReconnect && m.connectionAttempt && m.connectionMaxAttempts
+            ? ` (${m.connectionAttempt}/${m.connectionMaxAttempts})`
+            : '…';
+          return h(
+            'span',
+            { className: 'ch-pill info' },
+            h('span', { className: 'ch-spinner', 'aria-hidden': 'true' }),
+            `${isReconnect ? t('status.reconnecting') : t('status.connecting')}${progress}`,
+          );
+        }
+        if (m.connectionState === 'failed') {
+          return h('span', { className: 'ch-pill warn' }, t('status.failed'));
+        }
+        if (m.connectionState === 'missing' || m.source === 'missing') {
+          return h('span', { className: 'ch-pill warn' }, '未安装');
+        }
+        return h('span', { className: 'ch-pill ok' }, t('status.connected'));
+      };
 
       const openSkillDrawer = useCallback((skillName) => {
         setSkConfirmDelete(false);
@@ -2031,10 +2112,19 @@ window.__ModuleLoader__.load({
                                 ),
                               )
                             : h('span', { className: 'ch-mono', style: { fontWeight: 600, fontSize: 13.5 } }, currentMcp?.name),
+                          currentMcp ? renderMcpConnPill(currentMcp) : null,
                           currentMcp
                             ? h(
                                 'span',
-                                { className: currentMcp.bundleEnabled !== false && !currentMcp.globallyDisabled ? 'ch-pill ok' : 'ch-pill' },
+                                {
+                                  className:
+                                    currentMcp.bundleEnabled !== false &&
+                                    !currentMcp.globallyDisabled &&
+                                    currentMcp.connectionState === 'connected' &&
+                                    currentMcp.totalTools > 0
+                                      ? 'ch-pill ok'
+                                      : 'ch-pill',
+                                },
                                 `${currentMcp.bundleActiveTools ?? currentMcp.activeTools}/${currentMcp.totalTools} tools`,
                               )
                             : null,
@@ -2091,11 +2181,28 @@ window.__ModuleLoader__.load({
                                 ),
                               )
                             : null,
+                          currentMcp && currentMcp.canRestart && !currentMcp.globallyDisabled
+                            ? h(
+                                'button',
+                                {
+                                  type: 'button',
+                                  className: 'ch-btn ch-btn-sm',
+                                  disabled: isMcpBusy(currentMcp),
+                                  style: { display: 'inline-flex', alignItems: 'center', gap: 5 },
+                                  onClick: () => handleRestartMcp(currentMcp.name),
+                                },
+                                isMcpBusy(currentMcp) ? h('span', { className: 'ch-spinner', 'aria-hidden': 'true' }) : null,
+                                isMcpBusy(currentMcp) ? t('btn.restarting') : t('btn.restart'),
+                              )
+                            : null,
                           currentMcp
                             ? h('button', { type: 'button', className: 'ch-btn ch-btn-sm', onClick: () => openMcpDrawer(currentMcp.name) }, '配置 ›')
                             : null,
                         ),
                       ),
+                      currentMcp && currentMcp.lastError
+                        ? h('div', { className: 'ch-banner-err', style: { marginBottom: 10 } }, currentMcp.lastError)
+                        : null,
                       currentMcp && (currentMcp.tools || []).length > 5
                         ? h(
                             'div',
@@ -2157,7 +2264,15 @@ window.__ModuleLoader__.load({
                                   }),
                                 ),
                               ))
-                        : h('div', { className: 'ch-empty' }, '该 MCP 服务当前未暴露可用工具。'),
+                        : h(
+                            'div',
+                            { className: 'ch-empty', style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 } },
+                            currentMcp && isMcpBusy(currentMcp)
+                              ? h(React.Fragment, null, h('span', { className: 'ch-spinner', 'aria-hidden': 'true' }), '正在连接 MCP 服务并加载工具列表，连上后将自动刷新…')
+                              : currentMcp?.connectionState === 'failed'
+                                ? 'MCP 连接异常，当前无法调用工具，请点击上方「重连」。'
+                                : '该 MCP 服务当前未暴露可用工具。',
+                          ),
                     )),
           );
         }
@@ -2408,11 +2523,9 @@ window.__ModuleLoader__.load({
                                   { className: 'ch-row-title-line' },
                                   h('span', { className: 'ch-row-name ch-mono' }, m.name),
                                   h('span', { className: 'ch-slug ch-mono' }, m.transport),
-                                  m.connectionState === 'failed'
-                                    ? h('span', { className: 'ch-pill warn' }, t('status.failed'))
-                                    : m.disableReason === 'manual'
-                                      ? h('span', { className: 'ch-pill' }, t('status.muted'))
-                                      : h('span', { className: 'ch-slug' }, `${m.totalTools} tools`),
+                                  m.connectionState === 'failed' || m.disableReason === 'manual' || isMcpBusy(m)
+                                    ? renderMcpConnPill(m)
+                                    : h('span', { className: 'ch-slug' }, `${m.totalTools} tools`),
                                 ),
                                 h(
                                   'div',
@@ -2667,6 +2780,7 @@ window.__ModuleLoader__.load({
                   'div',
                   { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
                   h('span', { className: 'ch-pill ch-mono' }, m.transport),
+                  renderMcpConnPill(m),
                   m.hasAuth ? h('span', { className: 'ch-pill ok' }, '已配置鉴权') : null,
                   h('span', { className: 'ch-pill' }, `${m.totalTools} tools`),
                   ...(m.bundles || []).map((b) =>
@@ -2686,7 +2800,18 @@ window.__ModuleLoader__.load({
                   'div',
                   { style: { display: 'flex', alignItems: 'center', gap: 8 } },
                   m.canRestart
-                    ? h('button', { type: 'button', className: 'ch-btn ch-btn-sm', onClick: () => runMutation({ action: 'restart_mcp', serverName: m.name }) }, t('btn.restart'))
+                    ? h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'ch-btn ch-btn-sm',
+                          disabled: isMcpBusy(m),
+                          style: { display: 'inline-flex', alignItems: 'center', gap: 5 },
+                          onClick: () => handleRestartMcp(m.name),
+                        },
+                        isMcpBusy(m) ? h('span', { className: 'ch-spinner', 'aria-hidden': 'true' }) : null,
+                        isMcpBusy(m) ? t('btn.restarting') : t('btn.restart'),
+                      )
                     : null,
                   m.isCustom
                     ? h(
@@ -2771,7 +2896,13 @@ window.__ModuleLoader__.load({
                   'div',
                   { className: 'ch-checklist', style: { maxHeight: 240 } },
                   tools.length === 0
-                    ? h('div', { style: { padding: 12, color: 'var(--dsw-alias-label-tertiary)' } }, '无匹配工具')
+                    ? h(
+                        'div',
+                        { style: { padding: 12, color: 'var(--dsw-alias-label-tertiary)', display: 'flex', alignItems: 'center', gap: 8 } },
+                        isMcpBusy(m)
+                          ? h(React.Fragment, null, h('span', { className: 'ch-spinner', 'aria-hidden': 'true' }), '正在连接并加载工具列表…')
+                          : '无匹配工具',
+                      )
                     : tools.map((tl) => {
                         const globalChecked = !tl.individuallyDisabled;
                         const locked = m.disableReason === 'manual';

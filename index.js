@@ -652,19 +652,27 @@ export function apply(ctx) {
   let invalidateSkillPolicy = () => {};
   let disposed = false;
 
+  function disposeHandle(handle) {
+    if (!handle) return;
+    try {
+      if (typeof handle === 'function') handle();
+      else if (typeof handle.dispose === 'function') handle.dispose();
+    } catch {}
+  }
+
   ctx.effect(() => () => {
     disposed = true;
     for (const off of agentRestrictionDisposers.values()) {
-      try { off(); } catch {}
+      disposeHandle(off);
     }
     agentRestrictionDisposers.clear();
     for (const off of sessionSkillDisposers.values()) {
-      try { off(); } catch {}
+      disposeHandle(off);
     }
     sessionSkillDisposers.clear();
     sessionSkillInvalidators.clear();
     for (const off of customMcpDisposers.values()) {
-      try { off(); } catch {}
+      disposeHandle(off);
     }
     customMcpDisposers.clear();
   }, 'capability-hub: teardown');
@@ -807,7 +815,7 @@ export function apply(ctx) {
     agentRestrictionKeys.set(agent.id, key);
     const prev = agentRestrictionDisposers.get(agent.id);
     if (prev) {
-      try { prev(); } catch {}
+      disposeHandle(prev);
       agentRestrictionDisposers.delete(agent.id);
     }
     if (deny.length === 0) return;
@@ -1040,14 +1048,19 @@ export function apply(ctx) {
 
       let connState = 'connected';
       let lastError = '';
-      if (!eff.enabled) {
+      const rawStatus = managedView?.status;
+      if (eff.reason === 'manual') {
         connState = 'disabled';
-      } else if (managedView?.status?.state) {
-        connState = managedView.status.state;
-        if (managedView.status.lastError) lastError = managedView.status.lastError;
+      } else if (rawStatus?.state) {
+        connState = rawStatus.state;
+        if (rawStatus.lastError) lastError = rawStatus.lastError;
+      } else if (!eff.enabled) {
+        connState = 'disabled';
       } else if (tools.length === 0 && customCfg) {
         connState = 'connecting';
       }
+      const connectionAttempt = typeof rawStatus?.attempt === 'number' ? rawStatus.attempt : undefined;
+      const connectionMaxAttempts = typeof rawStatus?.maxAttempts === 'number' ? rawStatus.maxAttempts : undefined;
 
       const transport = customCfg?.transport || managedCfg?.transport || hint?.transport || 'streamable-http';
       const url = customCfg?.url || managedCfg?.url || hint?.url || '';
@@ -1085,6 +1098,8 @@ export function apply(ctx) {
         enabled: eff.enabled,
         disableReason: eff.reason,
         connectionState: connState,
+        ...(connectionAttempt !== undefined ? { connectionAttempt } : {}),
+        ...(connectionMaxAttempts !== undefined ? { connectionMaxAttempts } : {}),
         lastError,
         canRestart: Boolean(managedView),
         isCustom: Boolean(customCfg),
@@ -1936,12 +1951,12 @@ export function apply(ctx) {
       agentRestrictionKeys.delete(agent.id);
       const off = agentRestrictionDisposers.get(agent.id);
       if (off) {
-        try { off(); } catch {}
+        disposeHandle(off);
         agentRestrictionDisposers.delete(agent.id);
       }
       const skillOff = sessionSkillDisposers.get(agent.id);
       if (skillOff) {
-        try { skillOff(); } catch {}
+        disposeHandle(skillOff);
         sessionSkillDisposers.delete(agent.id);
       }
       sessionSkillInvalidators.delete(agent.id);
